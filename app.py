@@ -102,10 +102,12 @@ def dashboard():
     today_start = datetime.combine(today, datetime.min.time())
     today_end = datetime.combine(today, datetime.max.time())
 
+    # استبعاد الفواتير المعلقة pending_transfer من إجمالي اليوم
     today_sales = SaleInvoice.query.filter(
         SaleInvoice.sale_date >= today_start,
         SaleInvoice.sale_date <= today_end,
-        SaleInvoice.is_cancelled == False
+        SaleInvoice.is_cancelled == False,
+        SaleInvoice.payment_status != 'pending_transfer'
     ).all()
     today_total = sum(s.total_amount for s in today_sales)
     today_invoices = len(today_sales)
@@ -113,7 +115,8 @@ def dashboard():
     month_start = datetime(today.year, today.month, 1)
     month_sales = SaleInvoice.query.filter(
         SaleInvoice.sale_date >= month_start,
-        SaleInvoice.is_cancelled == False
+        SaleInvoice.is_cancelled == False,
+        SaleInvoice.payment_status != 'pending_transfer'
     ).all()
     month_total = sum(s.total_amount for s in month_sales)
     month_profit = 0
@@ -140,10 +143,11 @@ def dashboard():
     top_products = db.session.query(
         Product.name,
         func.sum(SaleItem.quantity).label('total_sold')
-    ).join(SaleItem).join(SaleInvoice).filter(SaleInvoice.is_cancelled == False)\
-     .group_by(Product.id).order_by(func.sum(SaleItem.quantity).desc()).limit(5).all()
+    ).join(SaleItem).join(SaleInvoice).filter(
+        SaleInvoice.is_cancelled == False,
+        SaleInvoice.payment_status != 'pending_transfer'
+    ).group_by(Product.id).order_by(func.sum(SaleItem.quantity).desc()).limit(5).all()
 
-    # تحويلات معلقة
     pending_transfers = BankTransfer.query.filter_by(status='pending').count()
 
     return render_template('dashboard.html',
@@ -274,71 +278,74 @@ def api_create_sale():
     tax = float(data.get('tax', 0))
     total = subtotal - discount + tax
 
-    # ── جلب العميل ──
     customer = Customer.query.get(customer_id) if customer_id else None
 
-    # ── خصم من المحفظة أولاً ──
+    # متغيرات إضافية
     wallet_used = 0
-    if customer and (customer.wallet_balance or 0) > 0:
-        remaining_after_cash = max(total - paid_amount, 0)
-        wallet_used = min(customer.wallet_balance, remaining_after_cash)
-        if wallet_used > 0:
-            customer.wallet_balance -= wallet_used
-            paid_amount += wallet_used
-
-    # ── الزيادة في الدفع: تخصم الدين أولاً ثم المحفظة ──
     extra_paid = 0
     debt_reduced = 0
     extra_to_wallet = 0
+    remaining = 0
 
-    if paid_amount > total:
-        extra_paid = paid_amount - total
-        paid_amount = total
-
-        if customer:
-            if (customer.current_balance or 0) > 0:
-                debt_reduced = min(extra_paid, customer.current_balance)
-                customer.current_balance -= debt_reduced
-                extra_paid -= debt_reduced
-
-                debts = Debt.query.filter_by(
-                    debt_type='customer', entity_id=customer_id
-                ).filter(Debt.remaining_amount > 0).order_by(Debt.created_at).all()
-                rem = debt_reduced
-                for debt in debts:
-                    if rem <= 0:
-                        break
-                    if debt.remaining_amount <= rem:
-                        rem -= debt.remaining_amount
-                        debt.remaining_amount = 0
-                        debt.status = 'paid'
-                    else:
-                        debt.remaining_amount -= rem
-                        debt.status = 'partially_paid'
-                        rem = 0
-
-            if extra_paid > 0:
-                extra_to_wallet = extra_paid
-                customer.wallet_balance = (customer.wallet_balance or 0) + extra_to_wallet
-
-    # ── حالة الدفع ──
+    # معالجة حسب طريقة الدفع
     if payment_method == 'transfer':
-        payment_status = 'paid'
-        remaining = 0
-    elif paid_amount >= total:
-        payment_status = 'paid'
-        remaining = 0
-    elif paid_amount > 0:
-        payment_status = 'partial'
-        remaining = total - paid_amount
-    else:
-        payment_status = 'credit'
+        # التحويل البنكي: لا نعتبر الدفع قد تم نقداً
+        if not transfer_name or not transfer_phone:
+            return jsonify({'error': 'أدخل اسم ورقم هاتف المحوِّل'}), 400
+        payment_status = 'pending_transfer'
+        paid_amount = 0
         remaining = total
+        # لا نستخدم المحفظة أو الديون
+    else:
+        # منطق الدفع النقدي أو بالأجل
+        if customer and (customer.wallet_balance or 0) > 0:
+            remaining_after_cash = max(total - paid_amount, 0)
+            wallet_used = min(customer.wallet_balance, remaining_after_cash)
+            if wallet_used > 0:
+                customer.wallet_balance -= wallet_used
+                paid_amount += wallet_used
 
-    if payment_status in ['credit', 'partial'] and not customer_id:
-        return jsonify({'error': 'يجب اختيار عميل للشراء بالدين أو الدفع الجزئي'}), 400
+        if paid_amount > total:
+            extra_paid = paid_amount - total
+            paid_amount = total
+            if customer:
+                if (customer.current_balance or 0) > 0:
+                    debt_reduced = min(extra_paid, customer.current_balance)
+                    customer.current_balance -= debt_reduced
+                    extra_paid -= debt_reduced
+                    debts = Debt.query.filter_by(
+                        debt_type='customer', entity_id=customer_id
+                    ).filter(Debt.remaining_amount > 0).order_by(Debt.created_at).all()
+                    rem = debt_reduced
+                    for debt in debts:
+                        if rem <= 0:
+                            break
+                        if debt.remaining_amount <= rem:
+                            rem -= debt.remaining_amount
+                            debt.remaining_amount = 0
+                            debt.status = 'paid'
+                        else:
+                            debt.remaining_amount -= rem
+                            debt.status = 'partially_paid'
+                            rem = 0
+                if extra_paid > 0:
+                    extra_to_wallet = extra_paid
+                    customer.wallet_balance = (customer.wallet_balance or 0) + extra_to_wallet
 
-    # ── إنشاء الفاتورة ──
+        if paid_amount >= total:
+            payment_status = 'paid'
+            remaining = 0
+        elif paid_amount > 0:
+            payment_status = 'partial'
+            remaining = total - paid_amount
+        else:
+            payment_status = 'credit'
+            remaining = total
+
+        if payment_status in ['credit', 'partial'] and not customer_id:
+            return jsonify({'error': 'يجب اختيار عميل للشراء بالدين أو الدفع الجزئي'}), 400
+
+    # إنشاء الفاتورة
     invoice_number = generate_invoice_number('INV')
     invoice = SaleInvoice(
         invoice_number=invoice_number,
@@ -358,7 +365,7 @@ def api_create_sale():
     db.session.add(invoice)
     db.session.flush()
 
-    # ── إضافة الأصناف وتحديث المخزون ──
+    # إضافة الأصناف وتحديث المخزون
     for item in cart:
         sale_item = SaleItem(
             invoice_id=invoice.id,
@@ -368,11 +375,9 @@ def api_create_sale():
             total=item['total']
         )
         db.session.add(sale_item)
-
         product = Product.query.get(item['id'])
         if product:
             product.current_stock -= item['quantity']
-
         movement = InventoryMovement(
             product_id=item['id'],
             movement_type='out',
@@ -383,12 +388,11 @@ def api_create_sale():
         )
         db.session.add(movement)
 
-    # ── تحديث بيانات العميل والديون ──
-    if customer:
+    # تحديث العميل والديون (ما عدا التحويل البنكي)
+    if customer and payment_method != 'transfer':
         customer.total_purchases += total
         customer.invoice_count += 1
         customer.last_purchase_date = datetime.utcnow()
-
         if remaining > 0:
             customer.current_balance = (customer.current_balance or 0) + remaining
             debt = Debt(
@@ -403,9 +407,9 @@ def api_create_sale():
 
     db.session.commit()
 
-    # ── تسجيل التحويل البنكي ──
+    # إنشاء سجل تحويل بنكي إذا كانت الطريقة تحويل
     transfer_id = None
-    if payment_method == 'transfer' and transfer_name and transfer_phone:
+    if payment_method == 'transfer':
         bt = BankTransfer(
             invoice_id=invoice.id,
             sender_name=transfer_name,
@@ -810,10 +814,12 @@ def api_sales_report():
         start_date = datetime.combine(today - timedelta(days=30), datetime.min.time())
         end_date = datetime.combine(today, datetime.max.time())
 
+    # استبعاد pending_transfer من الإحصائيات المالية
     sales = SaleInvoice.query.filter(
         SaleInvoice.sale_date >= start_date,
         SaleInvoice.sale_date <= end_date,
-        SaleInvoice.is_cancelled == False
+        SaleInvoice.is_cancelled == False,
+        SaleInvoice.payment_status != 'pending_transfer'
     ).all()
 
     total_sales = sum(s.total_amount for s in sales)
@@ -838,7 +844,8 @@ def api_sales_report():
     ).join(SaleItem).join(SaleInvoice).filter(
         SaleInvoice.sale_date >= start_date,
         SaleInvoice.sale_date <= end_date,
-        SaleInvoice.is_cancelled == False
+        SaleInvoice.is_cancelled == False,
+        SaleInvoice.payment_status != 'pending_transfer'
     ).group_by(Product.id).order_by(func.sum(SaleItem.total).desc()).limit(5).all()
 
     daily_data = db.session.query(
@@ -847,7 +854,8 @@ def api_sales_report():
     ).filter(
         SaleInvoice.sale_date >= start_date,
         SaleInvoice.sale_date <= end_date,
-        SaleInvoice.is_cancelled == False
+        SaleInvoice.is_cancelled == False,
+        SaleInvoice.payment_status != 'pending_transfer'
     ).group_by(func.date(SaleInvoice.sale_date)).all()
 
     daily_sales = []
@@ -855,7 +863,8 @@ def api_sales_report():
     for day in daily_data:
         day_sales = SaleInvoice.query.filter(
             func.date(SaleInvoice.sale_date) == day.date,
-            SaleInvoice.is_cancelled == False
+            SaleInvoice.is_cancelled == False,
+            SaleInvoice.payment_status != 'pending_transfer'
         ).all()
         day_profit = 0
         for sale in day_sales:
@@ -866,14 +875,32 @@ def api_sales_report():
         daily_sales.append({'date': str(day.date), 'total': day.total})
         daily_profit.append({'date': str(day.date), 'profit': day_profit})
 
-    paid_sum = sum(s.total_amount for s in sales if s.payment_status == 'paid')
-    partial_sum = sum(s.total_amount for s in sales if s.payment_status == 'partial')
-    unpaid_sum = sum(s.total_amount for s in sales if s.payment_status in ['unpaid', 'credit'])
+    paid_sum = db.session.query(func.sum(SaleInvoice.total_amount)).filter(
+        SaleInvoice.sale_date >= start_date,
+        SaleInvoice.sale_date <= end_date,
+        SaleInvoice.is_cancelled == False,
+        SaleInvoice.payment_status == 'paid'
+    ).scalar() or 0
+
+    partial_sum = db.session.query(func.sum(SaleInvoice.total_amount)).filter(
+        SaleInvoice.sale_date >= start_date,
+        SaleInvoice.sale_date <= end_date,
+        SaleInvoice.is_cancelled == False,
+        SaleInvoice.payment_status == 'partial'
+    ).scalar() or 0
+
+    unpaid_sum = db.session.query(func.sum(SaleInvoice.total_amount)).filter(
+        SaleInvoice.sale_date >= start_date,
+        SaleInvoice.sale_date <= end_date,
+        SaleInvoice.is_cancelled == False,
+        SaleInvoice.payment_status.in_(['unpaid', 'credit'])
+    ).scalar() or 0
 
     recent = SaleInvoice.query.filter(
         SaleInvoice.sale_date >= start_date,
         SaleInvoice.sale_date <= end_date,
-        SaleInvoice.is_cancelled == False
+        SaleInvoice.is_cancelled == False,
+        SaleInvoice.payment_status != 'pending_transfer'
     ).order_by(SaleInvoice.sale_date.desc()).limit(5).all()
 
     recent_invoices = []
@@ -976,6 +1003,20 @@ def confirm_transfer(transfer_id):
     bt.confirmed_at = datetime.utcnow()
     bt.confirmed_by = current_user.id
     bt.notes = request.json.get('notes', '')
+
+    # تحديث الفاتورة المرتبطة
+    invoice = SaleInvoice.query.get(bt.invoice_id)
+    if invoice:
+        invoice.payment_status = 'paid'
+        invoice.paid_amount = invoice.total_amount
+        # إذا كان هناك عميل غير مدين (نادر في التحويلات) يمكن تحديث الرصيد
+        if invoice.customer_id:
+            customer = Customer.query.get(invoice.customer_id)
+            if customer and invoice.total_amount > 0:
+                # لا داعي لتغيير هنا لأنه لم يسجل دين أصلاً
+                pass
+        db.session.add(invoice)
+
     db.session.commit()
     return jsonify({'success': True})
 
@@ -987,6 +1028,14 @@ def reject_transfer(transfer_id):
     bt.confirmed_at = datetime.utcnow()
     bt.confirmed_by = current_user.id
     bt.notes = request.json.get('notes', '')
+
+    invoice = SaleInvoice.query.get(bt.invoice_id)
+    if invoice:
+        invoice.payment_status = 'unpaid'
+        invoice.paid_amount = 0
+        # لا نعيد المخزون تلقائياً، يمكن إضافة استرجاع لاحقاً
+        db.session.add(invoice)
+
     db.session.commit()
     return jsonify({'success': True})
 
