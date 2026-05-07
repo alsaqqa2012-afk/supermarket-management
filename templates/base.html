@@ -67,10 +67,11 @@
         <div class="max-w-7xl mx-auto px-4">
             <div class="flex justify-between items-center h-16">
 
+                <!-- Logo and Desktop Menu -->
                 <div class="flex items-center space-x-4 space-x-reverse">
                     <span class="text-xl font-bold text-brand-dark">🏪 سوبر ماركت برو</span>
 
-                    <div class="hidden md:flex space-x-4 space-x-reverse">
+                    <div class="hidden lg:flex space-x-4 space-x-reverse">
                         <a href="{{ url_for('dashboard') }}" class="px-3 py-2 rounded-md text-sm font-medium hover:bg-brand-gold hover:text-brand-dark transition-colors">📊 لوحة التحكم</a>
 
                         {% if current_user.role in ['admin', 'inventory_manager'] %}
@@ -92,16 +93,62 @@
                     </div>
                 </div>
 
+                <!-- Right Side: User Info and Hamburger -->
                 <div class="flex items-center space-x-4 space-x-reverse">
-                    <span class="text-sm text-brand-primary font-bold">
-                        {{ current_user.username }} ({{ current_user.role }})
-                    </span>
+                    <div class="hidden sm:flex items-center space-x-4 space-x-reverse">
+                        <span class="text-sm text-brand-primary font-bold">
+                            {{ current_user.username }} ({{ current_user.role }})
+                        </span>
 
-                    <a href="{{ url_for('logout') }}" class="bg-brand-dark hover:bg-brand-primary text-white px-4 py-2 rounded-lg text-sm transition">
-                        🚪 خروج
-                    </a>
+                        <a href="{{ url_for('logout') }}" class="bg-brand-dark hover:bg-brand-primary text-white px-4 py-2 rounded-lg text-sm transition">
+                            🚪 خروج
+                        </a>
+                    </div>
+
+                    <!-- Hamburger Button -->
+                    <div class="lg:hidden flex items-center">
+                        <button id="mobile-menu-button" class="text-brand-dark hover:text-brand-primary focus:outline-none p-2 rounded-md hover:bg-gray-100 transition">
+                            <i class="fa-solid fa-bars text-2xl" id="menu-icon"></i>
+                        </button>
+                    </div>
                 </div>
 
+            </div>
+        </div>
+
+        <!-- Mobile Menu (Dropdown) -->
+        <div id="mobile-menu" class="hidden lg:hidden bg-white border-t border-gray-100 shadow-inner">
+            <div class="px-2 pt-2 pb-3 space-y-1">
+                <a href="{{ url_for('dashboard') }}" class="block px-4 py-2 rounded-md text-base font-medium text-gray-700 hover:bg-brand-gold hover:text-brand-dark transition-colors">📊 لوحة التحكم</a>
+
+                {% if current_user.role in ['admin', 'inventory_manager'] %}
+                <a href="{{ url_for('products') }}" class="block px-4 py-2 rounded-md text-base font-medium text-gray-700 hover:bg-brand-gold hover:text-brand-dark transition-colors">📦 المنتجات</a>
+                <a href="{{ url_for('incoming') }}" class="block px-4 py-2 rounded-md text-base font-medium text-gray-700 hover:bg-brand-gold hover:text-brand-dark transition-colors">🚚 مشتريات</a>
+                {% endif %}
+
+                {% if current_user.role in ['admin', 'cashier'] %}
+                <a href="{{ url_for('pos') }}" class="block px-4 py-2 rounded-md text-base font-medium text-gray-700 hover:bg-brand-gold hover:text-brand-dark transition-colors">🛒 نقطة البيع</a>
+                {% endif %}
+
+                <a href="{{ url_for('customers') }}" class="block px-4 py-2 rounded-md text-base font-medium text-gray-700 hover:bg-brand-gold hover:text-brand-dark transition-colors">👥 العملاء</a>
+                <a href="{{ url_for('debts') }}" class="block px-4 py-2 rounded-md text-base font-medium text-gray-700 hover:bg-brand-gold hover:text-brand-dark transition-colors">💰 الديون</a>
+                <a href="{{ url_for('reports') }}" class="block px-4 py-2 rounded-md text-base font-medium text-gray-700 hover:bg-brand-gold hover:text-brand-dark transition-colors">📈 التقارير</a>
+
+                {% if current_user.role == 'admin' %}
+                <a href="{{ url_for('users') }}" class="block px-4 py-2 rounded-md text-base font-medium text-gray-700 hover:bg-brand-gold hover:text-brand-dark transition-colors">👤 المستخدمين</a>
+                {% endif %}
+
+                <div class="border-t border-gray-100 pt-4 pb-3">
+                    <div class="px-4 flex items-center justify-between">
+                        <div>
+                            <div class="text-base font-medium text-brand-dark">{{ current_user.username }}</div>
+                            <div class="text-sm font-medium text-gray-500">{{ current_user.role }}</div>
+                        </div>
+                        <a href="{{ url_for('logout') }}" class="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-lg text-sm transition">
+                            🚪 خروج
+                        </a>
+                    </div>
+                </div>
             </div>
         </div>
     </nav>
@@ -131,6 +178,7 @@
     </div>
     
     <script>
+        // Loading functions
         function showLoading() {
             document.getElementById('loading').style.display = 'block';
         }
@@ -144,10 +192,31 @@
         });
 
         document.querySelectorAll('a').forEach(link => {
-            if (!link.href.includes('javascript:')) {
+            if (!link.href.includes('javascript:') && !link.getAttribute('target')) {
                 link.addEventListener('click', showLoading);
             }
         });
+
+        // Mobile Menu Toggle
+        const mobileMenuButton = document.getElementById('mobile-menu-button');
+        const mobileMenu = document.getElementById('mobile-menu');
+        const menuIcon = document.getElementById('menu-icon');
+
+        if (mobileMenuButton) {
+            mobileMenuButton.addEventListener('click', () => {
+                const isHidden = mobileMenu.classList.contains('hidden');
+                
+                if (isHidden) {
+                    mobileMenu.classList.remove('hidden');
+                    menuIcon.classList.remove('fa-bars');
+                    menuIcon.classList.add('fa-xmark');
+                } else {
+                    mobileMenu.classList.add('hidden');
+                    menuIcon.classList.remove('fa-xmark');
+                    menuIcon.classList.add('fa-bars');
+                }
+            });
+        }
     </script>
 
     {% block scripts %}{% endblock %}
