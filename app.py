@@ -8,7 +8,7 @@ import json
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'your-secret-key-change-this'
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///supermarket.db'
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///supermarket_v2.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 db.init_app(app)
