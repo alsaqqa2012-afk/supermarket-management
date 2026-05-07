@@ -1,6 +1,6 @@
 from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, session
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user
-from models import db, User, Product, Category, Customer, Supplier, SaleInvoice, SaleItem, PurchaseInvoice, PurchaseItem, Debt, Payment, InventoryMovement
+from models import db, User, Product, Category, Customer, Supplier, SaleInvoice, SaleItem, PurchaseInvoice, PurchaseItem, Debt, Payment, InventoryMovement, BankTransfer
 from datetime import datetime, timedelta
 import bcrypt
 from sqlalchemy import func, extract
@@ -20,7 +20,7 @@ login_manager.login_view = 'login'
 def load_user(user_id):
     return User.query.get(int(user_id))
 
-# Helper functions
+# ==================== Helper Functions ====================
 def hash_password(password):
     return bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
 
@@ -40,7 +40,9 @@ def role_required(allowed_roles):
 
 def generate_invoice_number(prefix):
     date_str = datetime.now().strftime('%Y%m%d')
-    last_invoice = SaleInvoice.query.filter(SaleInvoice.invoice_number.like(f'{prefix}{date_str}%')).order_by(SaleInvoice.id.desc()).first()
+    last_invoice = SaleInvoice.query.filter(
+        SaleInvoice.invoice_number.like(f'{prefix}{date_str}%')
+    ).order_by(SaleInvoice.id.desc()).first()
     if last_invoice:
         last_num = int(last_invoice.invoice_number[-4:])
         new_num = last_num + 1
@@ -50,7 +52,9 @@ def generate_invoice_number(prefix):
 
 def generate_purchase_number():
     date_str = datetime.now().strftime('%Y%m%d')
-    last_purchase = PurchaseInvoice.query.filter(PurchaseInvoice.invoice_number.like(f'PO{date_str}%')).order_by(PurchaseInvoice.id.desc()).first()
+    last_purchase = PurchaseInvoice.query.filter(
+        PurchaseInvoice.invoice_number.like(f'PO{date_str}%')
+    ).order_by(PurchaseInvoice.id.desc()).first()
     if last_purchase:
         last_num = int(last_purchase.invoice_number[-4:])
         new_num = last_num + 1
@@ -58,7 +62,7 @@ def generate_purchase_number():
         new_num = 1
     return f"PO{date_str}{new_num:04d}"
 
-# Routes
+# ==================== Auth ====================
 @app.route('/')
 def index():
     if current_user.is_authenticated:
@@ -69,12 +73,10 @@ def index():
 def login():
     if current_user.is_authenticated:
         return redirect(url_for('dashboard'))
-    
     if request.method == 'POST':
         username = request.form.get('username')
         password = request.form.get('password')
         user = User.query.filter_by(username=username).first()
-        
         if user and check_password(password, user.password_hash):
             user.last_login = datetime.utcnow()
             db.session.commit()
@@ -83,7 +85,6 @@ def login():
             return redirect(url_for('dashboard'))
         else:
             flash('اسم المستخدم أو كلمة المرور غير صحيحة', 'danger')
-    
     return render_template('login.html')
 
 @app.route('/logout')
@@ -93,13 +94,14 @@ def logout():
     flash('تم تسجيل الخروج بنجاح', 'info')
     return redirect(url_for('login'))
 
+# ==================== Dashboard ====================
 @app.route('/dashboard')
 @login_required
 def dashboard():
     today = datetime.now().date()
     today_start = datetime.combine(today, datetime.min.time())
     today_end = datetime.combine(today, datetime.max.time())
-    
+
     today_sales = SaleInvoice.query.filter(
         SaleInvoice.sale_date >= today_start,
         SaleInvoice.sale_date <= today_end,
@@ -107,7 +109,7 @@ def dashboard():
     ).all()
     today_total = sum(s.total_amount for s in today_sales)
     today_invoices = len(today_sales)
-    
+
     month_start = datetime(today.year, today.month, 1)
     month_sales = SaleInvoice.query.filter(
         SaleInvoice.sale_date >= month_start,
@@ -120,7 +122,7 @@ def dashboard():
             product = Product.query.get(item.product_id)
             if product:
                 month_profit += (item.unit_price - product.cost_price) * item.quantity
-    
+
     expiring_soon = Product.query.filter(
         Product.expiry_date <= datetime.now().date() + timedelta(days=30),
         Product.expiry_date >= datetime.now().date(),
@@ -130,28 +132,34 @@ def dashboard():
         Product.current_stock <= Product.min_stock_level,
         Product.is_active == True
     ).all()
-    
+
     overdue_debts = Customer.query.filter(Customer.current_balance > 0).all()
-    recent_invoices = SaleInvoice.query.filter_by(is_cancelled=False).order_by(SaleInvoice.sale_date.desc()).limit(10).all()
-    
+    recent_invoices = SaleInvoice.query.filter_by(is_cancelled=False)\
+        .order_by(SaleInvoice.sale_date.desc()).limit(10).all()
+
     top_products = db.session.query(
         Product.name,
         func.sum(SaleItem.quantity).label('total_sold')
     ).join(SaleItem).join(SaleInvoice).filter(SaleInvoice.is_cancelled == False)\
      .group_by(Product.id).order_by(func.sum(SaleItem.quantity).desc()).limit(5).all()
-    
-    return render_template('dashboard.html',
-                         today_total=today_total,
-                         today_invoices=today_invoices,
-                         month_total=month_total,
-                         month_profit=month_profit,
-                         expiring_soon=expiring_soon,
-                         low_stock=low_stock,
-                         overdue_debts=overdue_debts,
-                         recent_invoices=recent_invoices,
-                         top_products=top_products)
 
-# ==================== Products Management ====================
+    # تحويلات معلقة
+    pending_transfers = BankTransfer.query.filter_by(status='pending').count()
+
+    return render_template('dashboard.html',
+        today_total=today_total,
+        today_invoices=today_invoices,
+        month_total=month_total,
+        month_profit=month_profit,
+        expiring_soon=expiring_soon,
+        low_stock=low_stock,
+        overdue_debts=overdue_debts,
+        recent_invoices=recent_invoices,
+        top_products=top_products,
+        pending_transfers=pending_transfers
+    )
+
+# ==================== Products ====================
 @app.route('/products')
 @login_required
 @role_required(['admin', 'inventory_manager'])
@@ -171,7 +179,6 @@ def add_product():
             description=request.form.get('description'),
             cost_price=float(request.form.get('cost_price', 0)),
             selling_price=float(request.form.get('selling_price', 0)),
-            # ✅ المخزون الأولي دائماً صفر — يتحدث عبر فواتير الشراء فقط
             current_stock=0,
             min_stock_level=float(request.form.get('min_stock_level', 0)),
             max_stock_level=float(request.form.get('max_stock_level', 0)),
@@ -181,12 +188,10 @@ def add_product():
         expiry_date = request.form.get('expiry_date')
         if expiry_date:
             product.expiry_date = datetime.strptime(expiry_date, '%Y-%m-%d')
-        
         db.session.add(product)
         db.session.commit()
         flash('تم إضافة المنتج بنجاح. أضف فاتورة شراء لتحديث المخزون.', 'success')
         return redirect(url_for('products'))
-    
     categories = Category.query.all()
     return render_template('product_form.html', categories=categories, product=None)
 
@@ -208,11 +213,9 @@ def edit_product(id):
         expiry_date = request.form.get('expiry_date')
         if expiry_date:
             product.expiry_date = datetime.strptime(expiry_date, '%Y-%m-%d')
-        # ✅ لا نلمس current_stock هنا إطلاقاً
         db.session.commit()
         flash('تم تحديث المنتج بنجاح', 'success')
         return redirect(url_for('products'))
-    
     categories = Category.query.all()
     return render_template('product_form.html', categories=categories, product=product)
 
@@ -243,7 +246,6 @@ def api_search_products():
         Product.is_active == True,
         Product.name.contains(query)
     ).limit(20).all()
-    
     return jsonify([{
         'id': p.id,
         'name': p.name,
@@ -255,26 +257,27 @@ def api_search_products():
 @app.route('/api/create_sale', methods=['POST'])
 @login_required
 @role_required(['admin', 'cashier'])
-
 def api_create_sale():
     data = request.json
     cart = data.get('cart', [])
     customer_id = data.get('customer_id')
     paid_amount = float(data.get('paid_amount', 0))
     payment_method = data.get('payment_method', 'cash')
- 
+    transfer_name = data.get('transfer_name', '').strip()
+    transfer_phone = data.get('transfer_phone', '').strip()
+
     if not cart:
         return jsonify({'error': 'السلة فارغة'}), 400
- 
+
     subtotal = sum(item['total'] for item in cart)
     discount = float(data.get('discount', 0))
     tax = float(data.get('tax', 0))
     total = subtotal - discount + tax
- 
-    # ── 1. جلب العميل مرة وحدة ──
+
+    # ── جلب العميل ──
     customer = Customer.query.get(customer_id) if customer_id else None
- 
-    # ── 2. اخصم من المحفظة أولاً (قبل ما تحسب الدين) ──
+
+    # ── خصم من المحفظة أولاً ──
     wallet_used = 0
     if customer and (customer.wallet_balance or 0) > 0:
         remaining_after_cash = max(total - paid_amount, 0)
@@ -282,28 +285,25 @@ def api_create_sale():
         if wallet_used > 0:
             customer.wallet_balance -= wallet_used
             paid_amount += wallet_used
- 
-    # ── 3. الزيادة في الدفع: تخصم الدين أولاً ثم المحفظة ──
+
+    # ── الزيادة في الدفع: تخصم الدين أولاً ثم المحفظة ──
     extra_paid = 0
     debt_reduced = 0
     extra_to_wallet = 0
- 
+
     if paid_amount > total:
         extra_paid = paid_amount - total
-        paid_amount = total  # الفاتورة تتسجل بقيمتها الصحيحة
- 
+        paid_amount = total
+
         if customer:
-            # أولاً: خصم الدين الموجود
             if (customer.current_balance or 0) > 0:
                 debt_reduced = min(extra_paid, customer.current_balance)
                 customer.current_balance -= debt_reduced
                 extra_paid -= debt_reduced
- 
-                # تحديث سجلات الديون التفصيلية
+
                 debts = Debt.query.filter_by(
                     debt_type='customer', entity_id=customer_id
                 ).filter(Debt.remaining_amount > 0).order_by(Debt.created_at).all()
- 
                 rem = debt_reduced
                 for debt in debts:
                     if rem <= 0:
@@ -316,14 +316,16 @@ def api_create_sale():
                         debt.remaining_amount -= rem
                         debt.status = 'partially_paid'
                         rem = 0
- 
-            # ثانياً: اللي تبقى يروح للمحفظة
+
             if extra_paid > 0:
                 extra_to_wallet = extra_paid
                 customer.wallet_balance = (customer.wallet_balance or 0) + extra_to_wallet
- 
-    # ── 4. تحديد حالة الدفع ──
-    if paid_amount >= total:
+
+    # ── حالة الدفع ──
+    if payment_method == 'transfer':
+        payment_status = 'paid'
+        remaining = 0
+    elif paid_amount >= total:
         payment_status = 'paid'
         remaining = 0
     elif paid_amount > 0:
@@ -332,11 +334,11 @@ def api_create_sale():
     else:
         payment_status = 'credit'
         remaining = total
- 
+
     if payment_status in ['credit', 'partial'] and not customer_id:
         return jsonify({'error': 'يجب اختيار عميل للشراء بالدين أو الدفع الجزئي'}), 400
- 
-    # ── 5. إنشاء الفاتورة ──
+
+    # ── إنشاء الفاتورة ──
     invoice_number = generate_invoice_number('INV')
     invoice = SaleInvoice(
         invoice_number=invoice_number,
@@ -348,13 +350,15 @@ def api_create_sale():
         paid_amount=paid_amount,
         payment_status=payment_status,
         payment_method=payment_method,
+        transfer_name=transfer_name if payment_method == 'transfer' else None,
+        transfer_phone=transfer_phone if payment_method == 'transfer' else None,
         cashier_id=current_user.id,
         notes=data.get('notes', '')
     )
     db.session.add(invoice)
     db.session.flush()
- 
-    # ── 6. إضافة الأصناف وتحديث المخزون ──
+
+    # ── إضافة الأصناف وتحديث المخزون ──
     for item in cart:
         sale_item = SaleItem(
             invoice_id=invoice.id,
@@ -364,11 +368,11 @@ def api_create_sale():
             total=item['total']
         )
         db.session.add(sale_item)
- 
+
         product = Product.query.get(item['id'])
         if product:
             product.current_stock -= item['quantity']
- 
+
         movement = InventoryMovement(
             product_id=item['id'],
             movement_type='out',
@@ -378,13 +382,13 @@ def api_create_sale():
             user_id=current_user.id
         )
         db.session.add(movement)
- 
-    # ── 7. تحديث بيانات العميل والديون ──
+
+    # ── تحديث بيانات العميل والديون ──
     if customer:
         customer.total_purchases += total
         customer.invoice_count += 1
         customer.last_purchase_date = datetime.utcnow()
- 
+
         if remaining > 0:
             customer.current_balance = (customer.current_balance or 0) + remaining
             debt = Debt(
@@ -396,18 +400,23 @@ def api_create_sale():
                 status='due'
             )
             db.session.add(debt)
- 
+
     db.session.commit()
- 
-    # ── 8. بناء رسالة النتيجة ──
-    msg_parts = []
-    if wallet_used > 0:
-        msg_parts.append(f'استُخدم {wallet_used:.2f} ₪ من المحفظة')
-    if debt_reduced > 0:
-        msg_parts.append(f'خُصم {debt_reduced:.2f} ₪ من الدين')
-    if extra_to_wallet > 0:
-        msg_parts.append(f'أُضيف {extra_to_wallet:.2f} ₪ للمحفظة')
- 
+
+    # ── تسجيل التحويل البنكي ──
+    transfer_id = None
+    if payment_method == 'transfer' and transfer_name and transfer_phone:
+        bt = BankTransfer(
+            invoice_id=invoice.id,
+            sender_name=transfer_name,
+            sender_phone=transfer_phone,
+            amount=total,
+            status='pending'
+        )
+        db.session.add(bt)
+        db.session.commit()
+        transfer_id = bt.id
+
     return jsonify({
         'success': True,
         'invoice_id': invoice.id,
@@ -419,9 +428,8 @@ def api_create_sale():
         'extra_to_wallet': extra_to_wallet,
         'change': 0,
         'remaining_balance': remaining,
-        'message': ' | '.join(msg_parts) if msg_parts else None
+        'transfer_id': transfer_id
     })
-
 
 @app.route('/api/add_customer_quick', methods=['POST'])
 @login_required
@@ -429,14 +437,14 @@ def api_add_customer_quick():
     data = request.json
     name = data.get('name')
     phone = data.get('phone')
-    
+
     if not name or not phone:
         return jsonify({'error': 'الاسم ورقم الهاتف مطلوبان'}), 400
-    
+
     existing = Customer.query.filter_by(phone=phone).first()
     if existing:
         return jsonify({'error': 'رقم الهاتف موجود مسبقاً', 'customer': {'id': existing.id, 'name': existing.name}}), 409
-    
+
     customer = Customer(
         name=name,
         phone=phone,
@@ -445,7 +453,7 @@ def api_add_customer_quick():
     )
     db.session.add(customer)
     db.session.commit()
-    
+
     return jsonify({
         'success': True,
         'customer': {'id': customer.id, 'name': customer.name, 'balance': customer.current_balance}
@@ -463,7 +471,6 @@ def customers():
 def add_customer():
     if request.method == 'POST':
         initial_balance = float(request.form.get('initial_balance', 0) or 0)
-        
         customer = Customer(
             name=request.form.get('name'),
             phone=request.form.get('phone'),
@@ -476,7 +483,7 @@ def add_customer():
         )
         db.session.add(customer)
         db.session.flush()
-        
+
         if initial_balance > 0:
             debt = Debt(
                 debt_type='customer',
@@ -487,16 +494,10 @@ def add_customer():
                 status='due'
             )
             db.session.add(debt)
-        
+
         db.session.commit()
-        
-        if initial_balance > 0:
-            flash(f'تم إضافة العميل {customer.name} بنجاح - الدين الأولي: {initial_balance:.2f} ₪', 'success')
-        else:
-            flash('تم إضافة العميل بنجاح', 'success')
-        
+        flash(f'تم إضافة العميل {customer.name} بنجاح', 'success')
         return redirect(url_for('customers'))
-    
     return render_template('customer_form.html', customer=None)
 
 @app.route('/customer/edit/<int:id>', methods=['GET', 'POST'])
@@ -513,7 +514,6 @@ def edit_customer(id):
         db.session.commit()
         flash('تم تحديث بيانات العميل', 'success')
         return redirect(url_for('customers'))
-    
     return render_template('customer_form.html', customer=customer)
 
 # ==================== Incoming Goods (Purchase) ====================
@@ -532,11 +532,11 @@ def add_incoming():
     if request.method == 'POST':
         invoice_number = generate_purchase_number()
         supplier_id = request.form.get('supplier_id')
-        
+
         total_amount = float(request.form.get('total_amount', 0))
         paid_amount = float(request.form.get('paid_amount', 0))
         payment_status = request.form.get('payment_status', 'unpaid')
-        
+
         purchase = PurchaseInvoice(
             invoice_number=invoice_number,
             supplier_id=supplier_id if supplier_id else None,
@@ -549,18 +549,16 @@ def add_incoming():
         )
         db.session.add(purchase)
         db.session.flush()
-        
+
         product_ids = request.form.getlist('product_ids[]')
         quantities = request.form.getlist('quantities[]')
         cost_prices = request.form.getlist('cost_prices[]')
-        
+
         for i in range(len(product_ids)):
             if not product_ids[i] or not quantities[i] or not cost_prices[i]:
                 continue
-
             qty = float(quantities[i])
             cost = float(cost_prices[i])
-
             if qty <= 0:
                 continue
 
@@ -575,14 +573,10 @@ def add_incoming():
 
             product = Product.query.get(int(product_ids[i]))
             if product:
-                old_stock = product.current_stock  # المخزون القديم قبل الإضافة
-                new_stock = old_stock + qty          # المخزون الجديد
-
-                # ✅ حساب متوسط سعر الشراء بشكل صحيح
+                old_stock = product.current_stock
+                new_stock = old_stock + qty
                 if new_stock > 0:
                     product.cost_price = ((product.cost_price * old_stock) + (cost * qty)) / new_stock
-
-                # ✅ تحديث المخزون مرة واحدة فقط
                 product.current_stock = new_stock
 
                 movement = InventoryMovement(
@@ -594,11 +588,11 @@ def add_incoming():
                     user_id=current_user.id
                 )
                 db.session.add(movement)
-        
+
         db.session.commit()
         flash('تم إضافة فاتورة الشراء بنجاح وتحديث المخزون', 'success')
         return redirect(url_for('incoming'))
-    
+
     products = Product.query.filter_by(is_active=True).all()
     suppliers = Supplier.query.all()
     return render_template('incoming_form.html', products=products, suppliers=suppliers, purchase=None)
@@ -608,7 +602,6 @@ def add_incoming():
 def api_purchase_details(purchase_id):
     purchase = PurchaseInvoice.query.get_or_404(purchase_id)
     items = PurchaseItem.query.filter_by(invoice_id=purchase_id).all()
-    
     return jsonify({
         'invoice': {
             'invoice_number': purchase.invoice_number,
@@ -635,42 +628,35 @@ def record_supplier_payment():
     purchase_id = request.form.get('purchase_id')
     amount = float(request.form.get('amount'))
     payment_method = request.form.get('payment_method')
-    notes = request.form.get('notes', '')
-    
+
     purchase = PurchaseInvoice.query.get_or_404(purchase_id)
     remaining = purchase.total_amount - purchase.paid_amount
-    
+
     if amount <= 0:
         flash('المبلغ يجب أن يكون أكبر من صفر', 'danger')
         return redirect(url_for('incoming'))
-    
     if amount > remaining:
         flash('المبلغ المسدد أكبر من المتبقي', 'danger')
         return redirect(url_for('incoming'))
-    
+
     purchase.paid_amount += amount
     if purchase.paid_amount >= purchase.total_amount:
         purchase.payment_status = 'paid'
     else:
         purchase.payment_status = 'partial'
-    
+
     db.session.commit()
-    flash(f'تم تسديد {amount} ₪ للمورد {purchase.supplier.name if purchase.supplier else ""}', 'success')
+    flash(f'تم تسديد {amount} ₪ للمورد', 'success')
     return redirect(url_for('incoming'))
 
 # ==================== Debts ====================
 @app.route('/debts')
 @login_required
 def debts():
-    # ✅ اعرض كل من عنده دين أو رصيد محفظة
     debt_customers = Customer.query.filter(
-        db.or_(
-            Customer.current_balance > 0,
-            Customer.wallet_balance > 0
-        )
+        db.or_(Customer.current_balance > 0, Customer.wallet_balance > 0)
     ).all()
     return render_template('debts.html', customers=debt_customers)
-
 
 @app.route('/record_customer_payment', methods=['POST'])
 @login_required
@@ -679,25 +665,21 @@ def record_customer_payment():
     amount = float(request.form.get('amount'))
     payment_method = request.form.get('payment_method')
     notes = request.form.get('notes', '')
- 
+
     if amount <= 0:
         flash('المبلغ يجب أن يكون أكبر من صفر', 'danger')
         return redirect(url_for('debts'))
- 
+
     customer = Customer.query.get_or_404(customer_id)
- 
-    # ✅ المبلغ يُطبَّق أولاً على الدين
+
     debt_payment = min(amount, customer.current_balance)
-    extra = amount - debt_payment  # الزيادة فوق الدين
- 
-    # تخفيض الدين
+    extra = amount - debt_payment
+
     customer.current_balance -= debt_payment
- 
-    # أي زيادة تضاف كرصيد في المحفظة
+
     if extra > 0:
         customer.wallet_balance = (customer.wallet_balance or 0) + extra
- 
-    # تحديث سجلات الديون التفصيلية
+
     if debt_payment > 0:
         debts = Debt.query.filter_by(
             debt_type='customer', entity_id=customer_id
@@ -714,8 +696,7 @@ def record_customer_payment():
                 debt.remaining_amount -= remaining_to_apply
                 debt.status = 'partially_paid'
                 remaining_to_apply = 0
- 
-    # تسجيل الدفعة
+
     payment = Payment(
         debt_id=None,
         customer_id=customer.id,
@@ -727,34 +708,22 @@ def record_customer_payment():
     )
     db.session.add(payment)
     db.session.commit()
- 
-    # رسالة مناسبة
+
     if extra > 0:
-        flash(
-            f'تم استلام {amount:.2f} ₪ من {customer.name}. '
-            f'تم تصفية الدين، والرصيد الزائد {extra:.2f} ₪ أُضيف لمحفظته.',
-            'success'
-        )
+        flash(f'تم استلام {amount:.2f} ₪ من {customer.name}. الرصيد الزائد {extra:.2f} ₪ أُضيف للمحفظة.', 'success')
     else:
-        flash(
-            f'تم استلام {amount:.2f} ₪ من {customer.name}. '
-            f'الدين المتبقي: {customer.current_balance:.2f} ₪',
-            'success'
-        )
+        flash(f'تم استلام {amount:.2f} ₪ من {customer.name}. الدين المتبقي: {customer.current_balance:.2f} ₪', 'success')
     return redirect(url_for('debts'))
-
-
 
 # ==================== سجل المدفوعات ====================
 @app.route('/debt_payments')
 @login_required
 def debt_payments():
-    # استعلام يجلب جميع المدفوعات مع بيانات العميل
     payments = db.session.query(
         Payment, Customer.name.label('customer_name'), Customer.id.label('customer_id')
     ).outerjoin(Customer, Payment.customer_id == Customer.id)\
      .order_by(Payment.payment_date.desc()).all()
-    
+
     payment_list = []
     for payment, customer_name, customer_id in payments:
         payment_list.append({
@@ -767,7 +736,7 @@ def debt_payments():
             'notes': payment.notes,
             'recorded_by': payment.recorded_by
         })
-    
+
     customers = Customer.query.order_by(Customer.name).all()
     return render_template('debt_payments.html', payments=payment_list, customers=customers)
 
@@ -779,7 +748,7 @@ def api_debt_payments():
     if customer_id:
         query = query.filter(Customer.id == customer_id)
     results = query.order_by(Payment.payment_date.desc()).all()
-    
+
     data = []
     for payment, customer in results:
         data.append({
@@ -794,14 +763,12 @@ def api_debt_payments():
 
 @app.route('/api/customer_invoices/<int:customer_id>')
 @login_required
-# ==================== API: تفاصيل فواتير العميل + الأصناف ====================
 def api_customer_invoices(customer_id):
     invoices = SaleInvoice.query.filter_by(customer_id=customer_id, is_cancelled=False)\
         .order_by(SaleInvoice.sale_date.desc()).all()
-    
+
     result = []
     for inv in invoices:
-        # جلب أصناف الفاتورة
         items = SaleItem.query.filter_by(invoice_id=inv.id).all()
         result.append({
             'invoice_number': inv.invoice_number,
@@ -816,7 +783,6 @@ def api_customer_invoices(customer_id):
                 'total': item.total
             } for item in items]
         })
-    
     return jsonify({'invoices': result})
 
 # ==================== Reports ====================
@@ -830,7 +796,7 @@ def reports():
 def api_sales_report():
     report_type = request.args.get('type', 'daily')
     today = datetime.now().date()
-    
+
     if report_type == 'daily':
         start_date = datetime.combine(today, datetime.min.time())
         end_date = datetime.combine(today, datetime.max.time())
@@ -843,20 +809,18 @@ def api_sales_report():
     else:
         start_date = datetime.combine(today - timedelta(days=30), datetime.min.time())
         end_date = datetime.combine(today, datetime.max.time())
-    
-    # جلب فواتير البيع مع أصنافها
+
     sales = SaleInvoice.query.filter(
         SaleInvoice.sale_date >= start_date,
         SaleInvoice.sale_date <= end_date,
         SaleInvoice.is_cancelled == False
     ).all()
-    
+
     total_sales = sum(s.total_amount for s in sales)
     total_invoices = len(sales)
     avg_invoice = total_sales / total_invoices if total_invoices > 0 else 0
     paid_amount = sum(s.paid_amount for s in sales)
-    
-    # حساب التكلفة الإجمالية والأرباح
+
     total_cost = 0
     total_profit = 0
     for sale in sales:
@@ -866,8 +830,7 @@ def api_sales_report():
                 cost_item = product.cost_price * item.quantity
                 total_cost += cost_item
                 total_profit += (item.unit_price - product.cost_price) * item.quantity
-    
-    # أفضل المنتجات مبيعاً (حسب الإيرادات)
+
     top_products = db.session.query(
         Product.name,
         func.sum(SaleItem.quantity).label('quantity'),
@@ -877,23 +840,19 @@ def api_sales_report():
         SaleInvoice.sale_date <= end_date,
         SaleInvoice.is_cancelled == False
     ).group_by(Product.id).order_by(func.sum(SaleItem.total).desc()).limit(5).all()
-    
-    # المبيعات اليومية مع الربح اليومي
+
     daily_data = db.session.query(
         func.date(SaleInvoice.sale_date).label('date'),
-        func.sum(SaleInvoice.total_amount).label('total'),
-        func.sum(SaleItem.total).label('revenue')  # هذا ليس الربح، سنحسب الربح يدوياً
-    ).join(SaleItem).filter(
+        func.sum(SaleInvoice.total_amount).label('total')
+    ).filter(
         SaleInvoice.sale_date >= start_date,
         SaleInvoice.sale_date <= end_date,
         SaleInvoice.is_cancelled == False
     ).group_by(func.date(SaleInvoice.sale_date)).all()
-    
-    # حساب الربح لكل يوم
+
     daily_sales = []
     daily_profit = []
     for day in daily_data:
-        # نحتاج لحساب الربح الفعلي لذلك اليوم
         day_sales = SaleInvoice.query.filter(
             func.date(SaleInvoice.sale_date) == day.date,
             SaleInvoice.is_cancelled == False
@@ -906,29 +865,27 @@ def api_sales_report():
                     day_profit += (item.unit_price - product.cost_price) * item.quantity
         daily_sales.append({'date': str(day.date), 'total': day.total})
         daily_profit.append({'date': str(day.date), 'profit': day_profit})
-    
-    # توزيع المدفوعات
+
     paid_sum = sum(s.total_amount for s in sales if s.payment_status == 'paid')
     partial_sum = sum(s.total_amount for s in sales if s.payment_status == 'partial')
     unpaid_sum = sum(s.total_amount for s in sales if s.payment_status in ['unpaid', 'credit'])
-    
-    # آخر الفواتير (خمسة)
+
     recent = SaleInvoice.query.filter(
         SaleInvoice.sale_date >= start_date,
         SaleInvoice.sale_date <= end_date,
         SaleInvoice.is_cancelled == False
     ).order_by(SaleInvoice.sale_date.desc()).limit(5).all()
-    
+
     recent_invoices = []
     for inv in recent:
         recent_invoices.append({
             'number': inv.invoice_number,
-            'customer': inv.customer.name if inv.customer else 'عميل نقدي',
+            'customer': inv.customer.name if inv.customer else (inv.transfer_name or 'نقدي'),
             'total': inv.total_amount,
             'status': inv.payment_status,
             'time': inv.sale_date.strftime('%H:%M')
         })
-    
+
     return jsonify({
         'total_sales': total_sales,
         'total_invoices': total_invoices,
@@ -981,66 +938,98 @@ def toggle_user(id):
     flash('تم تحديث حالة المستخدم', 'success')
     return redirect(url_for('users'))
 
-# ==================== Context Processor ====================
-@app.context_processor
-def utility_processor():
-    from datetime import date, timedelta
-    return dict(now=datetime.now, timedelta=timedelta, date=date)
+# ==================== Bank Transfers ====================
+@app.route('/transfers')
+@login_required
+def transfers():
+    status_filter = request.args.get('status', 'all')
 
-# ==================== Initialize DB ====================
-with app.app_context():
-    db.create_all()
-    
-    if not User.query.filter_by(username='admin').first():
-        admin = User(
-            username='admin',
-            email='admin@supermarket.com',
-            password_hash=hash_password('admin123'),
-            role='admin',
-            phone='123456789',
-            is_active=True
-        )
-        db.session.add(admin)
-        
-        categories = ['ألبان', 'خضروات', 'فواكه', 'مشروبات', 'لحوم', 'مخبوزات', 'حلويات']
-        for cat_name in categories:
-            if not Category.query.filter_by(name=cat_name).first():
-                cat = Category(name=cat_name)
-                db.session.add(cat)
-        
-        if not Customer.query.first():
-            
-            credit_customer = Customer(
-                name='محمد أحمد',
-                phone='0501234567',
-                customer_type='credit',
-                current_balance=150,
-                total_purchases=150,
-                invoice_count=1
-            )
-            db.session.add(credit_customer)
-        
-        if not Supplier.query.first():
-            supplier = Supplier(name='شركة المواد الغذائية', phone='0512345678', address='الرياض')
-            db.session.add(supplier)
-        
-        db.session.commit()
-        print("✅ تم إنشاء المستخدم الافتراضي: admin / admin123")
-        print("✅ تم إضافة بيانات تجريبية (فئات، عملاء، موردين)")
-        
-        
-# ==================== سجل حركات العميل الشامل ====================
+    query = BankTransfer.query.order_by(BankTransfer.created_at.desc())
+    if status_filter == 'pending':
+        query = query.filter_by(status='pending')
+    elif status_filter == 'confirmed':
+        query = query.filter_by(status='confirmed')
+    elif status_filter == 'rejected':
+        query = query.filter_by(status='rejected')
+
+    transfers_list = query.all()
+
+    pending_count = BankTransfer.query.filter_by(status='pending').count()
+    confirmed_sum = db.session.query(func.sum(BankTransfer.amount))\
+                     .filter_by(status='confirmed').scalar() or 0
+    pending_sum   = db.session.query(func.sum(BankTransfer.amount))\
+                     .filter_by(status='pending').scalar() or 0
+
+    return render_template('transfers.html',
+        transfers=transfers_list,
+        status_filter=status_filter,
+        pending_count=pending_count,
+        confirmed_sum=confirmed_sum,
+        pending_sum=pending_sum
+    )
+
+@app.route('/api/transfer/confirm/<int:transfer_id>', methods=['POST'])
+@login_required
+def confirm_transfer(transfer_id):
+    bt = BankTransfer.query.get_or_404(transfer_id)
+    bt.status = 'confirmed'
+    bt.confirmed_at = datetime.utcnow()
+    bt.confirmed_by = current_user.id
+    bt.notes = request.json.get('notes', '')
+    db.session.commit()
+    return jsonify({'success': True})
+
+@app.route('/api/transfer/reject/<int:transfer_id>', methods=['POST'])
+@login_required
+def reject_transfer(transfer_id):
+    bt = BankTransfer.query.get_or_404(transfer_id)
+    bt.status = 'rejected'
+    bt.confirmed_at = datetime.utcnow()
+    bt.confirmed_by = current_user.id
+    bt.notes = request.json.get('notes', '')
+    db.session.commit()
+    return jsonify({'success': True})
+
+# ==================== Daily Invoices ====================
+@app.route('/invoices/daily')
+@login_required
+def daily_invoices():
+    from datetime import date
+    selected_date = request.args.get('date', date.today().isoformat())
+    try:
+        selected = datetime.strptime(selected_date, '%Y-%m-%d').date()
+    except Exception:
+        selected = date.today()
+
+    start = datetime.combine(selected, datetime.min.time())
+    end = datetime.combine(selected, datetime.max.time())
+
+    invoices = SaleInvoice.query.filter(
+        SaleInvoice.sale_date >= start,
+        SaleInvoice.sale_date <= end,
+        SaleInvoice.is_cancelled == False
+    ).order_by(SaleInvoice.sale_date.desc()).all()
+
+    total_cash     = sum(i.total_amount for i in invoices if i.payment_method == 'cash')
+    total_transfer = sum(i.total_amount for i in invoices if i.payment_method == 'transfer')
+    total_credit   = sum(i.total_amount for i in invoices if i.payment_status in ['credit', 'partial'])
+
+    return render_template('daily_invoices.html',
+        invoices=invoices,
+        selected_date=selected,
+        total_cash=total_cash,
+        total_transfer=total_transfer,
+        total_credit=total_credit
+    )
+
+# ==================== Customer Activity ====================
 @app.route('/customer/<int:customer_id>/activity')
 @login_required
 def customer_activity(customer_id):
     customer = Customer.query.get_or_404(customer_id)
-    
     activities = []
- 
-    # ── فواتير البيع ──
-    invoices = SaleInvoice.query.filter_by(
-        customer_id=customer_id, is_cancelled=False
-    ).all()
+
+    invoices = SaleInvoice.query.filter_by(customer_id=customer_id, is_cancelled=False).all()
     for inv in invoices:
         items = SaleItem.query.filter_by(invoice_id=inv.id).all()
         activities.append({
@@ -1059,8 +1048,7 @@ def customer_activity(customer_id):
             } for i in items],
             'notes': inv.notes or ''
         })
- 
-    # ── مدفوعات الديون ──
+
     payments = Payment.query.filter_by(customer_id=customer_id).all()
     for p in payments:
         activities.append({
@@ -1075,15 +1063,13 @@ def customer_activity(customer_id):
             'notes': p.notes or '',
             'method': p.payment_method
         })
- 
-    # ترتيب زمني تنازلي
+
     activities.sort(key=lambda x: x['date'], reverse=True)
- 
-    # ── ملخص ──
-    total_purchased = sum(a['amount'] for a in activities if a['type'] == 'sale')
-    total_paid_sales = sum(a['paid'] for a in activities if a['type'] == 'sale')
-    total_payments = sum(a['amount'] for a in activities if a['type'] == 'payment')
- 
+
+    total_purchased  = sum(a['amount'] for a in activities if a['type'] == 'sale')
+    total_paid_sales = sum(a['paid']   for a in activities if a['type'] == 'sale')
+    total_payments   = sum(a['amount'] for a in activities if a['type'] == 'payment')
+
     summary = {
         'total_purchased': total_purchased,
         'total_paid': total_paid_sales + total_payments,
@@ -1092,22 +1078,20 @@ def customer_activity(customer_id):
         'invoice_count': len(invoices),
         'payment_count': len(payments),
     }
- 
+
     return render_template('customer_activity.html',
-                           customer=customer,
-                           activities=activities,
-                           summary=summary)
- 
- 
+        customer=customer,
+        activities=activities,
+        summary=summary
+    )
+
 @app.route('/api/customer/<int:customer_id>/activity')
 @login_required
 def api_customer_activity(customer_id):
-    """API للفلترة الديناميكية"""
-    filter_type = request.args.get('type', 'all')  # all / sale / payment
-    
+    filter_type = request.args.get('type', 'all')
     activities = []
     customer = Customer.query.get_or_404(customer_id)
- 
+
     if filter_type in ('all', 'sale'):
         invoices = SaleInvoice.query.filter_by(
             customer_id=customer_id, is_cancelled=False
@@ -1130,7 +1114,7 @@ def api_customer_activity(customer_id):
                 } for i in items],
                 'notes': inv.notes or ''
             })
- 
+
     if filter_type in ('all', 'payment'):
         payments = Payment.query.filter_by(
             customer_id=customer_id
@@ -1148,10 +1132,9 @@ def api_customer_activity(customer_id):
                 'notes': p.notes or '',
                 'method': p.payment_method or 'cash'
             })
- 
-    # ترتيب تنازلي
+
     activities.sort(key=lambda x: x['date'], reverse=True)
- 
+
     return jsonify({
         'customer': {
             'name': customer.name,
@@ -1161,7 +1144,51 @@ def api_customer_activity(customer_id):
         },
         'activities': activities
     })
-         
+
+# ==================== Context Processor ====================
+@app.context_processor
+def utility_processor():
+    from datetime import date, timedelta
+    return dict(now=datetime.now, timedelta=timedelta, date=date)
+
+# ==================== Initialize DB ====================
+with app.app_context():
+    db.create_all()
+
+    if not User.query.filter_by(username='admin').first():
+        admin = User(
+            username='admin',
+            email='admin@supermarket.com',
+            password_hash=hash_password('admin123'),
+            role='admin',
+            phone='123456789',
+            is_active=True
+        )
+        db.session.add(admin)
+
+        categories = ['ألبان', 'خضروات', 'فواكه', 'مشروبات', 'لحوم', 'مخبوزات', 'حلويات']
+        for cat_name in categories:
+            if not Category.query.filter_by(name=cat_name).first():
+                cat = Category(name=cat_name)
+                db.session.add(cat)
+
+        if not Customer.query.first():
+            credit_customer = Customer(
+                name='محمد أحمد',
+                phone='0501234567',
+                customer_type='credit',
+                current_balance=150,
+                total_purchases=150,
+                invoice_count=1
+            )
+            db.session.add(credit_customer)
+
+        if not Supplier.query.first():
+            supplier = Supplier(name='شركة المواد الغذائية', phone='0512345678', address='الرياض')
+            db.session.add(supplier)
+
+        db.session.commit()
+        print("✅ تم إنشاء المستخدم الافتراضي: admin / admin123")
 
 if __name__ == '__main__':
-    app.run()
+    app.run(debug=True)

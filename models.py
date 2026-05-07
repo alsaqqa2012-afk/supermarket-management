@@ -60,13 +60,11 @@ class Customer(db.Model):
     credit_limit = db.Column(db.Float, default=0)
     
     current_balance = db.Column(db.Float, default=0)
+    wallet_balance = db.Column(db.Float, default=0)
     total_purchases = db.Column(db.Float, default=0)
     invoice_count = db.Column(db.Integer, default=0)
     last_purchase_date = db.Column(db.DateTime)
-    current_balance = db.Column(db.Float, default=0)
-    wallet_balance = db.Column(db.Float, default=0)
 
-    # علاقات
     invoices = db.relationship('SaleInvoice', backref='customer', lazy=True)
 
 # ==================== Suppliers ====================
@@ -96,7 +94,11 @@ class SaleInvoice(db.Model):
     
     paid_amount = db.Column(db.Float, default=0)
     payment_status = db.Column(db.String(50))  # paid / partial / credit
-    payment_method = db.Column(db.String(50))
+    payment_method = db.Column(db.String(50))  # cash / transfer / credit
+    
+    # بيانات التحويل البنكي (إن وجد)
+    transfer_name = db.Column(db.String(200))
+    transfer_phone = db.Column(db.String(50))
     
     cashier_id = db.Column(db.Integer)
     notes = db.Column(db.Text)
@@ -104,8 +106,8 @@ class SaleInvoice(db.Model):
     sale_date = db.Column(db.DateTime, default=datetime.utcnow)
     is_cancelled = db.Column(db.Boolean, default=False)
 
-    # 🔥 العلاقة المهمة (تحل مشكلتك)
     items = db.relationship('SaleItem', backref='invoice', lazy=True, cascade="all, delete-orphan")
+    transfer = db.relationship('BankTransfer', backref='invoice', uselist=False)
 
 # ==================== Sale Items ====================
 class SaleItem(db.Model):
@@ -204,4 +206,22 @@ class InventoryMovement(db.Model):
     reference_id = db.Column(db.Integer)
     
     user_id = db.Column(db.Integer)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+# ==================== Bank Transfers ====================
+class BankTransfer(db.Model):
+    __tablename__ = 'bank_transfers'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    invoice_id = db.Column(db.Integer, db.ForeignKey('sale_invoices.id'), nullable=True)
+    
+    sender_name = db.Column(db.String(200), nullable=False)   # اسم المحوِّل
+    sender_phone = db.Column(db.String(50), nullable=False)   # رقم هاتفه
+    amount = db.Column(db.Float, nullable=False)              # المبلغ
+    
+    status = db.Column(db.String(20), default='pending')      # pending / confirmed / rejected
+    confirmed_at = db.Column(db.DateTime, nullable=True)
+    confirmed_by = db.Column(db.Integer, nullable=True)       # user_id
+    notes = db.Column(db.Text)
+    
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
