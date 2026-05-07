@@ -44,10 +44,18 @@
                             <div class="text-[10px] text-gray-400">{{ product.barcode if product.barcode else 'بدون باركود' }}</div>
                         </td>
                         <td class="px-4 py-4">
-                            <span class="px-2 py-1 bg-gray-100 text-gray-600 rounded-md text-xs">
-                                {{ product.category.name if product.category else 'غير مصنف' }}
-                            </span>
-                        </td>
+    <span class="px-2 py-1 bg-gray-100 text-gray-600 rounded-md text-xs">
+        {% if product.category_id and product.category %}
+            {{ product.category.name }}
+        {% elif product.category_id %}
+            <!-- هذا يعني أن العلاقة لم تُحمّل، نحاول جلبها يدوياً -->
+            {% set cat = categories|selectattr("id", "equalto", product.category_id)|first %}
+            {{ cat.name if cat else 'فئة محذوفة' }}
+        {% else %}
+            غير مصنف
+        {% endif %}
+    </span>
+</td>
                         <td class="px-4 py-4 font-medium text-gray-600">{{ "{:,.2f}".format(product.cost_price) }} ₪</td>
                         <td class="px-4 py-4 font-bold text-brand-primary">{{ "{:,.2f}".format(product.selling_price) }} ₪</td>
                         <td class="px-4 py-4">
