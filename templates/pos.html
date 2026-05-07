@@ -1,5 +1,8 @@
 {% extends 'base.html' %}
 {% block content %}
+
+<h1 class="text-2xl font-bold text-brand-dark mb-6">🛒 نقطة البيع</h1>
+
 <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 font-cairo">
 
     <!-- قائمة المنتجات -->
@@ -72,7 +75,7 @@
                 </div>
             </div>
 
-            <!-- وضع التحويل البنكي -->
+            <!-- وضع التحويل البنكي (مع زر سجل التحويلات) -->
             <div id="modeTransfer" class="hidden space-y-2">
                 <div class="bg-blue-50 border border-blue-200 rounded-lg p-2 text-xs text-blue-700 flex items-center gap-2">
                     <i class="fas fa-info-circle"></i>
@@ -82,6 +85,12 @@
                     class="w-full border border-blue-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-400 outline-none text-sm">
                 <input type="tel" id="transferPhone" placeholder="رقم الهاتف *"
                     class="w-full border border-blue-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-400 outline-none text-sm">
+                
+                <!-- زر سجل التحويلات يظهر فقط في وضع التحويل -->
+                <a href="/transfers" 
+                   class="inline-flex items-center justify-center gap-2 w-full bg-white border border-blue-300 text-blue-700 px-3 py-2 rounded-lg text-sm font-semibold hover:bg-blue-50 transition">
+                    📋 عرض سجل التحويلات
+                </a>
             </div>
 
             <!-- وضع النقدي -->
@@ -430,6 +439,18 @@ function closeCustomerModal() {
     document.getElementById('addCustomerModal').classList.remove('flex');
     document.getElementById('newCustomerName').value = '';
     document.getElementById('newCustomerPhone').value = '';
+}
+
+// ==================== دوال مساعدة ====================
+function showLoading() {
+    // يمكنك تخصيصها حسب تصميمك
+    const btn = document.querySelector('button[onclick="completeSale()"]');
+    if (btn) btn.disabled = true;
+}
+
+function hideLoading() {
+    const btn = document.querySelector('button[onclick="completeSale()"]');
+    if (btn) btn.disabled = false;
 }
 
 // ==================== تهيئة الأحداث ====================
