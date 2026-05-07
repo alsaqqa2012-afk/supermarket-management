@@ -1,0 +1,106 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="animate-fade-in">
+    <div class="flex flex-col md:flex-row justify-between items-center mb-8 gap-4">
+        <div>
+            <h1 class="text-3xl font-extrabold text-brand-dark flex items-center gap-3">
+                <i class="fas fa-history text-blue-500"></i>
+                سجل المدفوعات والديون
+            </h1>
+            <p class="text-gray-500 mt-1">جميع عمليات السداد التي تمت من العملاء مع التواريخ والتفاصيل</p>
+        </div>
+        <div class="flex gap-2">
+            <a href="{{ url_for('debts') }}" class="bg-brand-primary hover:bg-brand-dark text-white px-5 py-2 rounded-xl flex items-center gap-2 transition">
+                <i class="fas fa-arrow-right"></i> العودة للديون
+            </a>
+        </div>
+    </div>
+
+    <!-- تصفية حسب العميل -->
+    <div class="bg-white rounded-2xl shadow-sm p-4 mb-8 flex flex-wrap items-center gap-4 border border-gray-100">
+        <i class="fas fa-filter text-gray-400"></i>
+        <span class="text-sm font-bold text-gray-600">تصفية حسب العميل:</span>
+        <select id="customerFilter" class="border-2 border-gray-100 rounded-xl px-4 py-2 focus:border-brand-primary outline-none text-sm">
+            <option value="">جميع العملاء</option>
+            {% for customer in customers %}
+            <option value="{{ customer.id }}">{{ customer.name }}</option>
+            {% endfor %}
+        </select>
+        <button onclick="filterPayments()" class="bg-brand-dark text-white px-4 py-2 rounded-lg text-sm hover:bg-brand-primary transition">تطبيق</button>
+        <button onclick="resetFilter()" class="text-gray-500 text-sm hover:text-red-500">إلغاء التصفية</button>
+    </div>
+
+    <!-- جدول المدفوعات -->
+    <div class="bg-white rounded-2xl shadow-sm overflow-hidden border border-gray-100">
+        <div class="overflow-x-auto">
+            <table class="w-full text-sm">
+                <thead class="bg-gray-50 border-b">
+                    <tr>
+                        <th class="text-right py-4 px-6 font-bold text-gray-600">التاريخ والوقت</th>
+                        <th class="text-right py-4 px-6 font-bold text-gray-600">العميل</th>
+                        <th class="text-right py-4 px-6 font-bold text-gray-600">المبلغ</th>
+                        <th class="text-right py-4 px-6 font-bold text-gray-600">وسيلة الدفع</th>
+                        <th class="text-right py-4 px-6 font-bold text-gray-600">الملاحظات</th>
+                     </tr>
+                </thead>
+                <tbody id="paymentsTableBody">
+                    {% for payment in payments %}
+                    <tr class="border-b hover:bg-gray-50 transition-colors">
+                        <td class="py-3 px-6 text-gray-500 font-mono text-xs">{{ payment.date.strftime('%Y-%m-%d %H:%M') }}</td>
+                        <td class="py-3 px-6 font-bold text-gray-800">{{ payment.customer_name }}</td>
+                        <td class="py-3 px-6 text-green-600 font-black">{{ "{:,.2f}".format(payment.amount) }} ₪</td>
+                        <td class="py-3 px-6">
+                            {% if payment.method == 'cash' %}
+                            <span class="bg-green-100 text-green-700 px-2 py-1 rounded-full text-xs">نقد</span>
+                            {% else %}
+                            <span class="bg-blue-100 text-blue-700 px-2 py-1 rounded-full text-xs">تحويل</span>
+                            {% endif %}
+                        </td>
+                        <td class="py-3 px-6 text-gray-500 max-w-xs truncate">{{ payment.notes or '-' }}</td>
+                    </tr>
+                    {% else %}
+                    <tr><td colspan="5" class="text-center py-12 text-gray-400">لا توجد مدفوعات مسجلة حتى الآن</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<script>
+async function filterPayments() {
+    const customerId = document.getElementById('customerFilter').value;
+    if (!customerId) { resetFilter(); return; }
+    showLoading();
+    try {
+        const response = await fetch(`/api/debt_payments?customer_id=${customerId}`);
+        const data = await response.json();
+        updateTable(data);
+    } catch (error) { alert('حدث خطأ'); } finally { hideLoading(); }
+}
+function resetFilter() { window.location.href = "{{ url_for('debt_payments') }}"; }
+function updateTable(payments) {
+    const tbody = document.getElementById('paymentsTableBody');
+    if (payments.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="5" class="text-center py-12 text-gray-400">لا توجد مدفوعات لهذا العميل</td></tr>';
+        return;
+    }
+    let html = '';
+    for (const p of payments) {
+        const methodClass = p.method === 'cash' ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700';
+        const methodText = p.method === 'cash' ? 'نقد' : 'تحويل';
+        html += `
+            <tr class="border-b hover:bg-gray-50">
+                <td class="py-3 px-6 text-gray-500 font-mono text-xs">${p.date}</td>
+                <td class="py-3 px-6 font-bold text-gray-800">${p.customer_name}</td>
+                <td class="py-3 px-6 text-green-600 font-black">${p.amount.toFixed(2)} ₪</td>
+                <td class="py-3 px-6"><span class="${methodClass} px-2 py-1 rounded-full text-xs">${methodText}</span></td>
+                <td class="py-3 px-6 text-gray-500">${p.notes || '-'}</td>
+            </tr>
+        `;
+    }
+    tbody.innerHTML = html;
+}
+</script>
+{% endblock %}

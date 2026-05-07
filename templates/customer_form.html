@@ -1,0 +1,89 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="flex justify-center items-center min-h-[80vh]">
+    <div class="w-full max-w-2xl bg-gray-800 rounded-xl shadow-2xl border border-gray-700 p-6 text-gray-200">
+        <h1 class="text-2xl font-bold mb-6 text-green-400 border-r-4 border-green-500 pr-3">
+            <i class="fas {{ 'fa-edit' if customer else 'fa-user-plus' }} ml-2"></i>
+            {{ 'تعديل عميل' if customer else 'إضافة عميل جديد' }}
+        </h1>
+        
+        <form method="POST">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
+                <div class="md:col-span-2">
+                    <label class="block text-sm font-medium text-gray-300 mb-1">اسم العميل *</label>
+                    <input type="text" name="name" required value="{{ customer.name if customer else '' }}" 
+                           class="w-full bg-gray-900 border border-gray-600 rounded-lg px-3 py-2 text-white placeholder-gray-500 focus:border-green-500 focus:ring-1 focus:ring-green-500 transition">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-300 mb-1">رقم الهاتف *</label>
+                    <input type="text" name="phone" required value="{{ customer.phone if customer else '' }}" 
+                           class="w-full bg-gray-900 border border-gray-600 rounded-lg px-3 py-2 text-white focus:border-green-500 focus:ring-1 focus:ring-green-500 transition">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-300 mb-1">البريد الإلكتروني</label>
+                    <input type="email" name="email" value="{{ customer.email if customer else '' }}" 
+                           class="w-full bg-gray-900 border border-gray-600 rounded-lg px-3 py-2 text-white focus:border-green-500 focus:ring-1 focus:ring-green-500 transition">
+                </div>
+                <div class="md:col-span-2">
+                    <label class="block text-sm font-medium text-gray-300 mb-1">العنوان</label>
+                    <input type="text" name="address" value="{{ customer.address if customer else '' }}" 
+                           class="w-full bg-gray-900 border border-gray-600 rounded-lg px-3 py-2 text-white focus:border-green-500 focus:ring-1 focus:ring-green-500 transition">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-300 mb-1">نوع العميل</label>
+                    <select name="customer_type" class="w-full bg-gray-900 border border-gray-600 rounded-lg px-3 py-2 text-white focus:border-green-500 focus:ring-1 focus:ring-green-500">
+                        <option value="cash" {% if customer and customer.customer_type == 'cash' %}selected{% endif %}>نقدي</option>
+                        <option value="credit" {% if not customer or customer.customer_type == 'credit' %}selected{% endif %}>آجل (دين)</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-300 mb-1">الحد الائتماني</label>
+                    <input type="number" step="0.01" name="credit_limit" value="{{ customer.credit_limit if customer else '0' }}" 
+                           class="w-full bg-gray-900 border border-gray-600 rounded-lg px-3 py-2 text-white focus:border-green-500 focus:ring-1 focus:ring-green-500">
+                </div>
+
+                {% if customer %}
+                <div class="md:col-span-2">
+                    <label class="block text-sm font-medium mb-1 text-gray-300">
+                        الرصيد الحالي (دين)
+                        {% if current_user.role == 'admin' %}
+                            <span class="text-xs text-yellow-400">(قابل للتعديل للمسؤول فقط)</span>
+                        {% endif %}
+                    </label>
+                    <input type="number" step="0.01" name="current_balance" 
+                           value="{{ customer.current_balance }}" 
+                           {% if current_user.role != 'admin' %}readonly{% endif %}
+                           class="w-full bg-gray-900 border border-gray-600 rounded-lg px-3 py-2 {% if current_user.role != 'admin' %}text-gray-400 cursor-not-allowed{% else %}text-white focus:border-green-500{% endif %}">
+                    {% if current_user.role == 'admin' %}
+                        <p class="text-xs text-red-400 mt-1">⚠️ تحذير: تعديل الرصيد يؤثر على ديون العميل وقد يسبب عدم تطابق مع سجل الديون.</p>
+                    {% else %}
+                        <p class="text-xs text-blue-400 mt-1">الرصيد يتم تحديثه تلقائياً عند البيع أو التسديد.</p>
+                    {% endif %}
+                </div>
+                {% else %}
+                <div class="md:col-span-2">
+                    <label class="block text-sm font-medium mb-1 text-gray-300">
+                        💰 الدين الأولي
+                        <span class="text-xs text-gray-400">(إذا كان عنده دين قديم من قبل)</span>
+                    </label>
+                    <input type="number" step="0.01" min="0" name="initial_balance" value="0" 
+                           class="w-full bg-gray-900 border border-yellow-600 rounded-lg px-3 py-2 text-white focus:border-yellow-400 focus:ring-1 focus:ring-yellow-400 transition">
+                    <p class="text-xs text-yellow-400 mt-1">
+                        ⚠️ اكتب المبلغ اللي عليه من قبل، أو اتركه صفر إذا ما عنده دين.
+                    </p>
+                </div>
+                {% endif %}
+            </div>
+            
+            <div class="flex gap-4 mt-8">
+                <button type="submit" class="flex-1 bg-green-600 hover:bg-green-700 text-white font-medium py-2.5 rounded-lg transition flex items-center justify-center gap-2 shadow-md">
+                    <i class="fas fa-save"></i> حفظ
+                </button>
+                <a href="{{ url_for('customers') }}" class="flex-1 bg-gray-700 hover:bg-gray-600 text-gray-200 text-center py-2.5 rounded-lg transition flex items-center justify-center gap-2">
+                    <i class="fas fa-times"></i> إلغاء
+                </a>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}

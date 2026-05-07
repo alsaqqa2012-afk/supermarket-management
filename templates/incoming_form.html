@@ -1,0 +1,404 @@
+{% extends 'base.html' %}
+{% block content %}
+
+<!-- Select2 CSS -->
+<link href="https://cdnjs.cloudflare.com/ajax/libs/select2/4.0.13/css/select2.min.css" rel="stylesheet" />
+<style>
+    /* تعديل Select2 ليتناسب مع الهوية الجديدة */
+    .select2-container--default .select2-selection--single {
+        height: 46px;
+        border-radius: 0.75rem;
+        border: 1px solid #e5e7eb;
+        background-color: #ffffff;
+        display: flex;
+        align-items: center;
+        transition: all 0.2s;
+    }
+    .select2-container--default .select2-selection--single:focus {
+        border-color: #FFD700;
+        box-shadow: 0 0 0 2px rgba(255, 215, 0, 0.2);
+    }
+    .select2-container--default .select2-selection--single .select2-selection__rendered {
+        line-height: 44px;
+        padding-right: 12px;
+        color: #022C43;
+        font-weight: 500;
+    }
+    .select2-container--default .select2-selection--single .select2-selection__arrow {
+        height: 44px;
+    }
+    .select2-container--default .select2-results__option--highlighted[aria-selected] {
+        background-color: #053F5E;
+    }
+    .select2-dropdown {
+        border-radius: 0.75rem;
+        border-color: #e5e7eb;
+        box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1);
+        font-family: 'Cairo', sans-serif;
+    }
+    .select2-container { width: 100% !important; }
+    
+    /* Badge المخزون */
+    .stock-badge {
+        font-size: 0.7rem;
+        padding: 2px 8px;
+        border-radius: 9999px;
+        font-weight: 700;
+    }
+    .stock-ok { background: #dcfce7; color: #16a34a; }
+    .stock-low { background: #fef9c3; color: #b45309; }
+    .stock-empty { background: #fee2e2; color: #dc2626; }
+
+    @keyframes fadeInRow {
+        from { opacity: 0; transform: translateY(-10px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+    .product-row { animation: fadeInRow 0.3s ease-out; }
+</style>
+
+<div class="max-w-6xl mx-auto font-cairo space-y-6">
+    <div class="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+        <!-- Header -->
+        <div class="bg-brand-dark p-6 text-white flex justify-between items-center">
+            <div class="flex items-center gap-4">
+                <div class="bg-brand-gold/20 p-3 rounded-xl">
+                    <i class="fas fa-truck-loading text-brand-gold text-2xl"></i>
+                </div>
+                <div>
+                    <h1 class="text-2xl font-bold">إضافة فاتورة شراء جديدة</h1>
+                    <p class="text-xs text-brand-secondary/60 mt-1">تحديث المخزون تلقائياً عند حفظ الفاتورة</p>
+                </div>
+            </div>
+            <a href="{{ url_for('incoming') }}" class="text-sm bg-white/10 hover:bg-white/20 px-4 py-2 rounded-lg transition">
+                <i class="fas fa-arrow-right ml-1"></i> العودة للقائمة
+            </a>
+        </div>
+
+        <form method="POST" id="purchaseForm" class="p-6">
+            <!-- معلومات الفاتورة الأساسية -->
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8 p-6 bg-gray-50 rounded-2xl border border-gray-100">
+                <div>
+                    <label class="block text-xs font-bold text-brand-dark mb-2">المورد</label>
+                    <select name="supplier_id" id="supplierSelect" class="w-full">
+                        <option value="">👤 اختر مورد (اختياري)</option>
+                        {% for supplier in suppliers %}
+                        <option value="{{ supplier.id }}">{{ supplier.name }} - {{ supplier.phone }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-brand-dark mb-2">طريقة الدفع</label>
+                    <select name="payment_method" class="w-full border border-gray-200 rounded-xl px-4 py-2.5 outline-none focus:ring-2 focus:ring-brand-gold transition">
+                        <option value="cash">💵 نقد</option>
+                        <option value="bank">🏦 تحويل بنكي</option>
+                        <option value="check">📄 شيك</option>
+                        <option value="credit">🕐 آجل</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-brand-dark mb-2">حالة الدفع</label>
+                    <select name="payment_status" id="paymentStatus" class="w-full border border-gray-200 rounded-xl px-4 py-2.5 outline-none focus:ring-2 focus:ring-brand-gold transition" onchange="togglePaidAmount()">
+                        <option value="unpaid">❌ غير مدفوع</option>
+                        <option value="partial">🔶 دفع جزئي</option>
+                        <option value="paid">✅ مدفوع بالكامل</option>
+                    </select>
+                </div>
+                <div id="paidAmountDiv" class="hidden">
+                    <label class="block text-xs font-bold text-brand-dark mb-2">المبلغ المدفوع</label>
+                    <div class="relative">
+                        <input type="number" step="0.01" name="paid_amount" id="paidAmount" value="0"
+                               class="w-full border border-gray-200 rounded-xl px-4 py-2.5 outline-none focus:ring-2 focus:ring-brand-gold transition text-left font-bold text-brand-primary">
+                        <span class="absolute right-4 top-2.5 text-gray-400">₪</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- جدول المنتجات -->
+            <div class="space-y-4">
+                <div class="flex justify-between items-center">
+                    <h3 class="text-lg font-bold text-brand-dark flex items-center gap-2">
+                        <i class="fas fa-list-ul text-brand-gold"></i> المنتجات المستلمة
+                    </h3>
+                    <button type="button" onclick="addProductRow()"
+                            class="bg-brand-secondary hover:bg-brand-dark text-white px-4 py-2 rounded-xl text-sm font-bold flex items-center gap-2 transition shadow-sm">
+                        <i class="fas fa-plus-circle"></i> إضافة سطر جديد
+                    </button>
+                </div>
+
+                <div class="overflow-hidden border border-gray-100 rounded-2xl shadow-sm">
+                    <table class="w-full text-right" id="productsTable">
+                        <thead class="bg-gray-50 border-b border-gray-100">
+                            <tr>
+                                <th class="px-4 py-4 font-bold text-xs text-gray-500">#</th>
+                                <th class="px-4 py-4 font-bold text-xs text-gray-500 w-1/3">المنتج</th>
+                                <th class="px-4 py-4 font-bold text-xs text-gray-500 text-center">المخزون</th>
+                                <th class="px-4 py-4 font-bold text-xs text-gray-500 text-center">الكمية</th>
+                                <th class="px-4 py-4 font-bold text-xs text-gray-500 text-center">سعر الشراء</th>
+                                <th class="px-4 py-4 font-bold text-xs text-gray-500 text-left">الإجمالي</th>
+                                <th class="px-4 py-4 font-bold text-xs text-gray-500 text-center">حذف</th>
+                            </tr>
+                        </thead>
+                        <tbody id="productsBody" class="divide-y divide-gray-50">
+                            <!-- الصف الأول -->
+                            <tr class="product-row">
+                                <td class="px-4 py-4 text-gray-300 text-xs row-num">1</td>
+                                <td class="px-2 py-3">
+                                    <select name="product_ids[]" class="product-select w-full">
+                                        <option value="">🔍 ابحث عن منتج بالاسم أو الباركود...</option>
+                                        {% for product in products %}
+                                        <option value="{{ product.id }}"
+                                                data-cost="{{ product.cost_price }}"
+                                                data-stock="{{ product.current_stock }}"
+                                                data-min="{{ product.min_stock_level }}"
+                                                data-unit="{{ product.unit or '' }}">
+                                            {{ product.name }}
+                                        </option>
+                                        {% endfor %}
+                                    </select>
+                                </td>
+                                <td class="px-4 py-3 text-center">
+                                    <span class="stock-info text-xs text-gray-400 font-bold">-</span>
+                                </td>
+                                <td class="px-2 py-3">
+                                    <input type="number" name="quantities[]" step="0.01" min="0.01"
+                                           class="quantity w-24 border border-gray-200 rounded-lg px-2 py-2 text-sm text-center focus:ring-1 focus:ring-brand-gold outline-none mx-auto block" value="1">
+                                </td>
+                                <td class="px-2 py-3">
+                                    <input type="number" name="cost_prices[]" step="0.01" min="0"
+                                           class="cost-price w-28 border border-gray-200 rounded-lg px-2 py-2 text-sm text-center focus:ring-1 focus:ring-brand-gold outline-none mx-auto block font-medium" value="0">
+                                </td>
+                                <td class="px-4 py-3 text-left">
+                                    <span class="row-total font-bold text-brand-primary">0.00</span>
+                                    <span class="text-gray-400 text-[10px] mr-1">₪</span>
+                                </td>
+                                <td class="px-2 py-3 text-center">
+                                    <button type="button" class="text-red-300 hover:text-red-500 transition p-2 rounded-lg hover:bg-red-50"
+                                            onclick="removeRow(this)">
+                                        <i class="fas fa-times"></i>
+                                    </button>
+                                </td>
+                            </tr>
+                        </tbody>
+                        <tfoot class="bg-brand-gold/5 border-t-2 border-brand-gold/20">
+                            <tr>
+                                <td colspan="5" class="px-6 py-5 text-right font-bold text-brand-dark text-lg">
+                                    الإجمالي النهائي للفاتورة:
+                                </td>
+                                <td colspan="2" class="px-4 py-5 text-left">
+                                    <span id="grandTotal" class="text-3xl font-bold text-brand-primary">0.00</span>
+                                    <span class="text-brand-secondary font-bold mr-1">₪</span>
+                                    <input type="hidden" name="total_amount" id="totalAmountInput">
+                                </td>
+                            </tr>
+                        </tfoot>
+                    </table>
+                </div>
+            </div>
+
+            <!-- ملخص الدفع -->
+            <div id="paymentSummary" class="hidden mt-6 p-5 bg-brand-gold/10 border border-brand-gold/20 rounded-2xl flex justify-between items-center">
+                <div class="flex gap-8">
+                    <div class="text-sm">
+                        <span class="text-gray-500 ml-2">الإجمالي:</span>
+                        <strong id="summaryTotal" class="text-brand-dark">0.00 ₪</strong>
+                    </div>
+                    <div class="text-sm">
+                        <span class="text-gray-500 ml-2">المدفوع:</span>
+                        <strong id="summaryPaid" class="text-green-600">0.00 ₪</strong>
+                    </div>
+                </div>
+                <div class="text-sm bg-white px-4 py-2 rounded-xl shadow-sm border border-brand-gold/10">
+                    <span class="text-gray-500 ml-2">المتبقي كدين للمورد:</span>
+                    <strong id="summaryRemaining" class="text-red-600 text-lg">0.00 ₪</strong>
+                </div>
+            </div>
+
+            <!-- الملاحظات -->
+            <div class="mt-8">
+                <label class="block text-xs font-bold text-brand-dark mb-2">ملاحظات الفاتورة</label>
+                <textarea name="notes" rows="2" class="w-full border border-gray-200 rounded-2xl px-4 py-3 outline-none focus:ring-2 focus:ring-brand-gold transition" placeholder="أي ملاحظات حول البضاعة المستلمة أو شروط الدفع..."></textarea>
+            </div>
+
+            <!-- Actions -->
+            <div class="flex gap-4 mt-10 pt-8 border-t">
+                <button type="submit" class="flex-[2] bg-brand-primary text-white py-4 rounded-2xl font-bold hover:bg-brand-dark transition-all shadow-lg hover:shadow-xl flex items-center justify-center gap-2">
+                    <i class="fas fa-check-double"></i> حفظ الفاتورة وتحديث المخزون
+                </button>
+                <a href="{{ url_for('incoming') }}" class="flex-1 bg-gray-100 text-gray-500 text-center py-4 rounded-2xl font-bold hover:bg-gray-200 transition">
+                    إلغاء
+                </a>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Select2 & Scripts -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.6.0/jquery.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/select2/4.0.13/js/select2.min.js"></script>
+
+<script>
+    $(document).ready(function() {
+        initSelect2($('.product-select'));
+        $('#supplierSelect').select2({ dir: "rtl" });
+        
+        // ربط الأحداث للصف الأول
+        bindRowEvents($('.product-row'));
+    });
+
+    function initSelect2(element) {
+        element.select2({
+            placeholder: "🔍 ابحث عن منتج...",
+            dir: "rtl",
+            language: { noResults: () => "لا يوجد منتج بهذا الاسم" }
+        }).on('select2:select', function(e) {
+            const row = $(this).closest('tr');
+            const selected = e.params.data.element;
+            
+            const cost = $(selected).data('cost') || 0;
+            const stock = $(selected).data('stock') || 0;
+            const unit = $(selected).data('unit') || '';
+            
+            row.find('.cost-price').val(cost);
+            
+            const stockBadge = row.find('.stock-info');
+            stockBadge.text(`${stock} ${unit}`);
+            stockBadge.removeClass('stock-ok stock-low stock-empty');
+            
+            if (stock <= 0) stockBadge.addClass('stock-empty');
+            else if (stock <= $(selected).data('min')) stockBadge.addClass('stock-low');
+            else stockBadge.addClass('stock-ok');
+            
+            calculateRow(row);
+        });
+    }
+
+    function bindRowEvents(row) {
+        row.find('.quantity, .cost-price').on('input', function() {
+            calculateRow(row);
+        });
+    }
+
+    function calculateRow(row) {
+        const qty = parseFloat(row.find('.quantity').val()) || 0;
+        const cost = parseFloat(row.find('.cost-price').val()) || 0;
+        const total = qty * cost;
+        row.find('.row-total').text(total.toFixed(2));
+        calculateGrandTotal();
+    }
+
+    function calculateGrandTotal() {
+        let grandTotal = 0;
+        $('.row-total').each(function() {
+            grandTotal += parseFloat($(this).text()) || 0;
+        });
+        $('#grandTotal').text(grandTotal.toFixed(2));
+        $('#totalAmountInput').val(grandTotal.toFixed(2));
+        
+        // تحديث ملخص الدفع
+        updatePaymentSummary();
+    }
+
+    function addProductRow() {
+        const tbody = $('#productsBody');
+        const rowCount = tbody.find('tr').length + 1;
+        const newRow = $(`
+            <tr class="product-row border-b border-gray-50">
+                <td class="px-4 py-4 text-gray-300 text-xs row-num">${rowCount}</td>
+                <td class="px-2 py-3">
+                    <select name="product_ids[]" class="product-select w-full">
+                        ${$('.product-select').first().html()}
+                    </select>
+                </td>
+                <td class="px-4 py-3 text-center">
+                    <span class="stock-info text-xs text-gray-400 font-bold">-</span>
+                </td>
+                <td class="px-2 py-3">
+                    <input type="number" name="quantities[]" step="0.01" min="0.01"
+                           class="quantity w-24 border border-gray-200 rounded-lg px-2 py-2 text-sm text-center focus:ring-1 focus:ring-brand-gold outline-none mx-auto block" value="1">
+                </td>
+                <td class="px-2 py-3">
+                    <input type="number" name="cost_prices[]" step="0.01" min="0"
+                           class="cost-price w-28 border border-gray-200 rounded-lg px-2 py-2 text-sm text-center focus:ring-1 focus:ring-brand-gold outline-none mx-auto block font-medium" value="0">
+                </td>
+                <td class="px-4 py-3 text-left">
+                    <span class="row-total font-bold text-brand-primary">0.00</span>
+                    <span class="text-gray-400 text-[10px] mr-1">₪</span>
+                </td>
+                <td class="px-2 py-3 text-center">
+                    <button type="button" class="text-red-300 hover:text-red-500 transition p-2 rounded-lg hover:bg-red-50"
+                            onclick="removeRow(this)">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </td>
+            </tr>
+        `);
+        
+        tbody.append(newRow);
+        initSelect2(newRow.find('.product-select'));
+        bindRowEvents(newRow);
+    }
+
+    function removeRow(btn) {
+        if ($('.product-row').length > 1) {
+            $(btn).closest('tr').remove();
+            calculateGrandTotal();
+            // تحديث الأرقام التسلسلية
+            $('.row-num').each(function(index) {
+                $(this).text(index + 1);
+            });
+        } else {
+            alert('يجب وجود منتج واحد على الأقل في الفاتورة');
+        }
+    }
+
+    function togglePaidAmount() {
+        const status = $('#paymentStatus').val();
+        const div = $('#paidAmountDiv');
+        const input = $('#paidAmount');
+        const grandTotal = parseFloat($('#grandTotal').text()) || 0;
+
+        if (status === 'paid') {
+            div.removeClass('hidden');
+            input.val(grandTotal.toFixed(2)).attr('readonly', true).addClass('bg-gray-50');
+        } else if (status === 'partial') {
+            div.removeClass('hidden');
+            input.val(0).attr('readonly', false).removeClass('bg-gray-50').focus();
+        } else {
+            div.addClass('hidden');
+            input.val(0);
+        }
+        updatePaymentSummary();
+    }
+
+    function updatePaymentSummary() {
+        const total = parseFloat($('#grandTotal').text()) || 0;
+        const paid = parseFloat($('#paidAmount').val()) || 0;
+        const remaining = total - paid;
+        const status = $('#paymentStatus').val();
+
+        if (status === 'partial' || (status === 'unpaid' && total > 0)) {
+            $('#paymentSummary').removeClass('hidden');
+            $('#summaryTotal').text(total.toFixed(2) + ' ₪');
+            $('#summaryPaid').text(paid.toFixed(2) + ' ₪');
+            $('#summaryRemaining').text(remaining.toFixed(2) + ' ₪');
+        } else {
+            $('#paymentSummary').addClass('hidden');
+        }
+    }
+
+    $('#paidAmount').on('input', updatePaymentSummary);
+
+    $('#purchaseForm').on('submit', function(e) {
+        let valid = true;
+        $('.product-select').each(function() {
+            if (!$(this).val()) {
+                alert('الرجاء اختيار المنتج في كافة الصفوف');
+                valid = false;
+                return false;
+            }
+        });
+        if (!valid) e.preventDefault();
+        else showLoading();
+    });
+</script>
+{% endblock %}

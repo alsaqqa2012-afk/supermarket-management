@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+    <title>نظام إدارة السوبر ماركت</title>
+
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+
+    <style>
+        /* ✅ خط ثمانية */
+        @font-face {
+            font-family: 'Thmanyah';
+            src: url('/static/fonts/thmanyahsans-Black.woff2') format('woff2');
+            font-weight: 900;
+            font-style: normal;
+        }
+
+        /* تطبيق الخط */
+        * {
+            font-family: 'Thmanyah', sans-serif;
+        }
+
+        .rtl { direction: rtl; }
+
+        .loading {
+            display: none;
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            z-index: 9999;
+        }
+    </style>
+
+    <script>
+        tailwind.config = {
+            theme: { 
+                extend: { 
+                    fontFamily: { 
+                        thmanyah: ['Thmanyah', 'sans-serif']
+                    },
+                    colors: {
+                        brand: {
+                            dark: '#022C43',
+                            primary: '#053F5E',
+                            secondary: '#115173',
+                            gold: '#FFD700'
+                        }
+                    }
+                } 
+            }
+        }
+    </script>
+</head>
+
+<body class="bg-gray-100 font-thmanyah">
+
+    <div class="loading" id="loading">
+        <div class="animate-spin rounded-full h-16 w-16 border-t-4 border-b-4 border-brand-primary"></div>
+    </div>
+    
+    {% if current_user.is_authenticated %}
+    <nav class="bg-white shadow-lg mb-6 border-b-4 border-brand-gold">
+        <div class="max-w-7xl mx-auto px-4">
+            <div class="flex justify-between items-center h-16">
+
+                <div class="flex items-center space-x-4 space-x-reverse">
+                    <span class="text-xl font-bold text-brand-dark">🏪 سوبر ماركت برو</span>
+
+                    <div class="hidden md:flex space-x-4 space-x-reverse">
+                        <a href="{{ url_for('dashboard') }}" class="px-3 py-2 rounded-md text-sm font-medium hover:bg-brand-gold hover:text-brand-dark transition-colors">📊 لوحة التحكم</a>
+
+                        {% if current_user.role in ['admin', 'inventory_manager'] %}
+                        <a href="{{ url_for('products') }}" class="px-3 py-2 rounded-md text-sm font-medium hover:bg-brand-gold hover:text-brand-dark transition-colors">📦 المنتجات</a>
+                        <a href="{{ url_for('incoming') }}" class="px-3 py-2 rounded-md text-sm font-medium hover:bg-brand-gold hover:text-brand-dark transition-colors">🚚 مشتريات</a>
+                        {% endif %}
+
+                        {% if current_user.role in ['admin', 'cashier'] %}
+                        <a href="{{ url_for('pos') }}" class="px-3 py-2 rounded-md text-sm font-medium hover:bg-brand-gold hover:text-brand-dark transition-colors">🛒 نقطة البيع</a>
+                        {% endif %}
+
+                        <a href="{{ url_for('customers') }}" class="px-3 py-2 rounded-md text-sm font-medium hover:bg-brand-gold hover:text-brand-dark transition-colors">👥 العملاء</a>
+                        <a href="{{ url_for('debts') }}" class="px-3 py-2 rounded-md text-sm font-medium hover:bg-brand-gold hover:text-brand-dark transition-colors">💰 الديون</a>
+                        <a href="{{ url_for('reports') }}" class="px-3 py-2 rounded-md text-sm font-medium hover:bg-brand-gold hover:text-brand-dark transition-colors">📈 التقارير</a>
+
+                        {% if current_user.role == 'admin' %}
+                        <a href="{{ url_for('users') }}" class="px-3 py-2 rounded-md text-sm font-medium hover:bg-brand-gold hover:text-brand-dark transition-colors">👤 المستخدمين</a>
+                        {% endif %}
+                    </div>
+                </div>
+
+                <div class="flex items-center space-x-4 space-x-reverse">
+                    <span class="text-sm text-brand-primary font-bold">
+                        {{ current_user.username }} ({{ current_user.role }})
+                    </span>
+
+                    <a href="{{ url_for('logout') }}" class="bg-brand-dark hover:bg-brand-primary text-white px-4 py-2 rounded-lg text-sm transition">
+                        🚪 خروج
+                    </a>
+                </div>
+
+            </div>
+        </div>
+    </nav>
+    {% endif %}
+    
+    <div class="container mx-auto px-4 py-6">
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                {% for category, message in messages %}
+                    <div class="mb-4 p-4 rounded-lg 
+                        {% if category == 'success' %}
+                            bg-green-100 text-green-700 border border-green-200
+                        {% elif category == 'danger' %}
+                            bg-red-100 text-red-700 border border-red-200
+                        {% elif category == 'warning' %}
+                            bg-yellow-100 text-yellow-700 border border-yellow-200
+                        {% else %}
+                            bg-brand-secondary/10 text-brand-dark border border-brand-secondary/20
+                        {% endif %}">
+                        {{ message }}
+                    </div>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+        
+        {% block content %}{% endblock %}
+    </div>
+    
+    <script>
+        function showLoading() {
+            document.getElementById('loading').style.display = 'block';
+        }
+
+        function hideLoading() {
+            document.getElementById('loading').style.display = 'none';
+        }
+        
+        document.querySelectorAll('form').forEach(form => {
+            form.addEventListener('submit', showLoading);
+        });
+
+        document.querySelectorAll('a').forEach(link => {
+            if (!link.href.includes('javascript:')) {
+                link.addEventListener('click', showLoading);
+            }
+        });
+    </script>
+
+    {% block scripts %}{% endblock %}
+</body>
+</html>

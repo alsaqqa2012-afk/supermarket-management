@@ -1,0 +1,322 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="animate-fade-in">
+    <!-- Header & Filter -->
+    <div class="flex flex-col md:flex-row justify-between items-center mb-8 gap-4">
+        <div>
+            <h1 class="text-3xl font-extrabold text-brand-dark flex items-center gap-3">
+                <i class="fas fa-chart-pie text-brand-gold"></i>
+                التقارير والإحصائيات
+            </h1>
+            <p class="text-gray-500 mt-1">تحليل أداء المبيعات والأرباح للفترات المختلفة</p>
+        </div>
+        
+        <div class="flex gap-2 bg-white p-1.5 rounded-2xl shadow-sm border border-gray-100">
+            <button onclick="loadReport('daily')" id="btn-daily"
+                    class="report-btn px-6 py-2 rounded-xl text-sm font-bold transition-all duration-200 bg-brand-primary text-white shadow-lg shadow-brand-primary/20">
+                اليوم
+            </button>
+            <button onclick="loadReport('weekly')" id="btn-weekly"
+                    class="report-btn px-6 py-2 rounded-xl text-sm font-bold transition-all duration-200 text-gray-500 hover:bg-gray-50">
+                الأسبوع
+            </button>
+            <button onclick="loadReport('monthly')" id="btn-monthly"
+                    class="report-btn px-6 py-2 rounded-xl text-sm font-bold transition-all duration-200 text-gray-500 hover:bg-gray-50">
+                الشهر
+            </button>
+        </div>
+    </div>
+
+    <!-- Stats Cards Grid -->
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+        <!-- Sales Card -->
+        <div class="bg-white rounded-2xl shadow-sm p-6 border-b-4 border-blue-500 hover:shadow-md transition-shadow">
+            <div class="flex items-center justify-between mb-4">
+                <div class="bg-blue-50 p-3 rounded-xl"><i class="fas fa-cash-register text-blue-600 text-xl"></i></div>
+                <span id="totalInvoicesSub" class="text-xs font-bold bg-gray-100 text-gray-600 px-2 py-1 rounded-lg">—</span>
+            </div>
+            <p class="text-gray-500 text-sm font-medium">إجمالي المبيعات</p>
+            <p id="totalSales" class="text-2xl font-black text-gray-800 mt-1">—</p>
+        </div>
+
+        <!-- Profit Card -->
+        <div class="bg-white rounded-2xl shadow-sm p-6 border-b-4 border-green-500 hover:shadow-md transition-shadow">
+            <div class="flex items-center justify-between mb-4">
+                <div class="bg-green-50 p-3 rounded-xl"><i class="fas fa-hand-holding-usd text-green-600 text-xl"></i></div>
+                <span id="profitMargin" class="text-[10px] font-bold bg-green-100 text-green-700 px-2 py-1 rounded-lg">—</span>
+            </div>
+            <p class="text-gray-500 text-sm font-medium">صافي الربح</p>
+            <p id="totalProfit" class="text-2xl font-black text-green-600 mt-1">—</p>
+        </div>
+
+        <!-- Cost Card -->
+        <div class="bg-white rounded-2xl shadow-sm p-6 border-b-4 border-orange-500 hover:shadow-md transition-shadow">
+            <div class="flex items-center justify-between mb-4">
+                <div class="bg-orange-50 p-3 rounded-xl"><i class="fas fa-tags text-orange-600 text-xl"></i></div>
+            </div>
+            <p class="text-gray-500 text-sm font-medium">تكلفة البضاعة</p>
+            <p id="totalCost" class="text-2xl font-black text-gray-800 mt-1">—</p>
+        </div>
+
+        <!-- Avg Invoice Card -->
+        <div class="bg-white rounded-2xl shadow-sm p-6 border-b-4 border-purple-500 hover:shadow-md transition-shadow">
+            <div class="flex items-center justify-between mb-4">
+                <div class="bg-purple-50 p-3 rounded-xl"><i class="fas fa-receipt text-purple-600 text-xl"></i></div>
+            </div>
+            <p class="text-gray-500 text-sm font-medium">متوسط الفاتورة</p>
+            <p id="avgInvoice" class="text-2xl font-black text-gray-800 mt-1">—</p>
+        </div>
+    </div>
+
+    <!-- Main Charts Section -->
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-8">
+        <!-- Sales Trend -->
+        <div class="lg:col-span-2 bg-white rounded-2xl shadow-sm p-6 border border-gray-100">
+            <h3 class="text-lg font-bold text-brand-dark mb-6 flex items-center gap-2">
+                <i class="fas fa-chart-line text-blue-500"></i>
+                تحليل حركة المبيعات والارباح
+            </h3>
+            <div class="h-[300px]">
+                <canvas id="salesChart"></canvas>
+            </div>
+        </div>
+
+        <!-- Payment Breakdown -->
+        <div class="bg-white rounded-2xl shadow-sm p-6 border border-gray-100">
+            <h3 class="text-lg font-bold text-brand-dark mb-6 flex items-center gap-2">
+                <i class="fas fa-pie-chart text-purple-500"></i>
+                طرق تحصيل الديون
+            </h3>
+            <div class="h-[220px] relative">
+                <canvas id="paymentChart"></canvas>
+            </div>
+            <div id="paymentLegend" class="mt-6 space-y-2">
+                <!-- Dynamic Content -->
+            </div>
+        </div>
+    </div>
+
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+        <!-- Top Selling Products -->
+        <div class="bg-white rounded-2xl shadow-sm p-6 border border-gray-100">
+            <div class="flex justify-between items-center mb-6">
+                <h3 class="text-lg font-bold text-brand-dark flex items-center gap-2">
+                    <i class="fas fa-fire text-orange-500"></i>
+                    الأكثر مبيعاً
+                </h3>
+            </div>
+            <div id="topProducts" class="space-y-4">
+                <!-- Dynamic Content -->
+            </div>
+        </div>
+
+        <!-- Recent Activity -->
+        <div class="bg-white rounded-2xl shadow-sm p-6 border border-gray-100 overflow-hidden">
+            <h3 class="text-lg font-bold text-brand-dark mb-6 flex items-center gap-2">
+                <i class="fas fa-history text-gray-400"></i>
+                آخر النشاطات
+            </h3>
+            <div class="overflow-x-auto">
+                <table class="w-full text-sm">
+                    <thead>
+                        <tr class="text-gray-400 border-b border-gray-50">
+                            <th class="text-right pb-3 font-medium">الفاتورة</th>
+                            <th class="text-right pb-3 font-medium">العميل</th>
+                            <th class="text-right pb-3 font-medium">المبلغ</th>
+                            <th class="text-center pb-3 font-medium">الحالة</th>
+                        </tr>
+                    </thead>
+                    <tbody id="recentInvoices" class="divide-y divide-gray-50">
+                        <!-- Dynamic Content -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Chart.js Library -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<script>
+let salesChart, paymentChart;
+
+const STATUS_STYLE = {
+    'paid': { label: 'مدفوع', class: 'bg-green-100 text-green-700' },
+    'partial': { label: 'جزئي', class: 'bg-yellow-100 text-yellow-700' },
+    'unpaid': { label: 'غير مدفوع', class: 'bg-red-100 text-red-700' },
+    'credit': { label: 'دين', class: 'bg-red-100 text-red-700' }
+};
+
+function formatCurrency(val) {
+    return new Intl.NumberFormat('ar-PS', { style: 'currency', currency: 'ILS' }).format(val);
+}
+
+async function loadReport(type) {
+    showLoading();
+    
+    // تحديث شكل الأزرار
+    document.querySelectorAll('.report-btn').forEach(btn => {
+        btn.classList.remove('bg-brand-primary', 'text-white', 'shadow-lg', 'shadow-brand-primary/20');
+        btn.classList.add('text-gray-500');
+    });
+    const activeBtn = document.getElementById(`btn-${type}`);
+    activeBtn.classList.add('bg-brand-primary', 'text-white', 'shadow-lg', 'shadow-brand-primary/20');
+    activeBtn.classList.remove('text-gray-500');
+
+    try {
+        const response = await fetch(`/api/sales_report?type=${type}`);
+        const data = await response.json();
+        
+        updateStats(data);
+        renderCharts(data);
+        updateTopProducts(data);
+        updateRecentInvoices(data);
+    } catch (error) {
+        console.error("Error loading report:", error);
+        document.getElementById('totalSales').innerText = 'خطأ';
+    } finally {
+        hideLoading();
+    }
+}
+
+function updateStats(data) {
+    document.getElementById('totalSales').innerText = formatCurrency(data.total_sales);
+    document.getElementById('totalProfit').innerText = formatCurrency(data.total_profit);
+    document.getElementById('totalCost').innerText = formatCurrency(data.total_cost);
+    document.getElementById('avgInvoice').innerText = formatCurrency(data.avg_invoice);
+    document.getElementById('totalInvoicesSub').innerText = `${data.total_invoices} فاتورة`;
+    
+    const margin = data.total_sales > 0 ? (data.total_profit / data.total_sales * 100).toFixed(1) : 0;
+    document.getElementById('profitMargin').innerHTML = `هامش: ${margin}%`;
+}
+
+function renderCharts(data) {
+    // رسم المبيعات والأرباح
+    const salesCtx = document.getElementById('salesChart').getContext('2d');
+    if (salesChart) salesChart.destroy();
+    
+    // التأكد من وجود daily_profit
+    const profitData = data.daily_profit ? data.daily_profit.map(d => d.profit) : new Array(data.daily_sales.length).fill(0);
+    
+    salesChart = new Chart(salesCtx, {
+        type: 'line',
+        data: {
+            labels: data.daily_sales.map(d => d.date.split('-').slice(1).join('/')),
+            datasets: [
+                {
+                    label: 'المبيعات',
+                    data: data.daily_sales.map(d => d.total),
+                    borderColor: '#3b82f6',
+                    backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                    fill: true,
+                    tension: 0.4
+                },
+                {
+                    label: 'الربح',
+                    data: profitData,
+                    borderColor: '#10b981',
+                    borderDash: [5, 5],
+                    tension: 0.4
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: { 
+                tooltip: { callbacks: { label: (ctx) => `${ctx.dataset.label}: ${formatCurrency(ctx.raw)}` } }
+            },
+            scales: {
+                y: { beginAtZero: true, ticks: { callback: (val) => formatCurrency(val) } }
+            }
+        }
+    });
+
+    // رسم توزيع الدفع
+    const payCtx = document.getElementById('paymentChart').getContext('2d');
+    if (paymentChart) paymentChart.destroy();
+    
+    const pb = data.payment_breakdown;
+    paymentChart = new Chart(payCtx, {
+        type: 'doughnut',
+        data: {
+            labels: ['مدفوع', 'جزئي', 'غير مدفوع'],
+            datasets: [{
+                data: [pb.paid, pb.partial, pb.unpaid],
+                backgroundColor: ['#10b981', '#f59e0b', '#ef4444'],
+                borderWidth: 0,
+                cutout: '80%'
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: { legend: { display: false } }
+        }
+    });
+
+    // تحديث الأسطورة
+    const total = pb.paid + pb.partial + pb.unpaid || 1;
+    document.getElementById('paymentLegend').innerHTML = `
+        <div class="flex justify-between text-xs"><span class="flex items-center gap-2"><i class="fas fa-circle text-green-500"></i> مدفوع</span> <b>${(pb.paid/total*100).toFixed(0)}%</b></div>
+        <div class="flex justify-between text-xs"><span class="flex items-center gap-2"><i class="fas fa-circle text-yellow-500"></i> جزئي</span> <b>${(pb.partial/total*100).toFixed(0)}%</b></div>
+        <div class="flex justify-between text-xs"><span class="flex items-center gap-2"><i class="fas fa-circle text-red-500"></i> غير مدفوع</span> <b>${(pb.unpaid/total*100).toFixed(0)}%</b></div>
+    `;
+}
+
+function updateTopProducts(data) {
+    const container = document.getElementById('topProducts');
+    if (!data.top_products || data.top_products.length === 0) {
+        container.innerHTML = '<p class="text-center text-gray-400 py-4">لا توجد مبيعات في هذه الفترة</p>';
+        return;
+    }
+    
+    const maxRevenue = Math.max(...data.top_products.map(p => p.revenue));
+    container.innerHTML = data.top_products.map((p, idx) => `
+        <div class="flex items-center gap-4">
+            <span class="text-xs font-bold text-gray-300 w-4">${idx + 1}</span>
+            <div class="flex-1">
+                <div class="flex justify-between text-sm mb-1">
+                    <span class="font-bold text-gray-700">${p.name}</span>
+                    <span class="text-gray-500">${formatCurrency(p.revenue)}</span>
+                </div>
+                <div class="w-full bg-gray-100 rounded-full h-1.5 overflow-hidden">
+                    <div class="bg-brand-primary h-full transition-all duration-1000" style="width: ${(p.revenue / maxRevenue * 100)}%"></div>
+                </div>
+                <div class="text-xs text-gray-400 mt-1">الكمية: ${p.quantity}</div>
+            </div>
+        </div>
+    `).join('');
+}
+
+function updateRecentInvoices(data) {
+    const tbody = document.getElementById('recentInvoices');
+    if (!data.recent_invoices || data.recent_invoices.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="4" class="text-center py-4 text-gray-400">لا توجد فواتير</td></tr>';
+        return;
+    }
+    
+    tbody.innerHTML = data.recent_invoices.map(inv => {
+        const style = STATUS_STYLE[inv.status] || STATUS_STYLE['unpaid'];
+        return `
+            <tr class="hover:bg-gray-50 transition-colors">
+                <td class="py-4 font-mono text-gray-400">#${inv.number.slice(-6)}</td>
+                <td class="py-4 font-bold text-gray-700">${inv.customer}</td>
+                <td class="py-4 font-black">${formatCurrency(inv.total)}</td>
+                <td class="py-4 text-center">
+                    <span class="px-3 py-1 rounded-full text-[10px] font-bold ${style.class}">
+                        ${style.label}
+                    </span>
+                </td>
+            </tr>
+        `;
+    }).join('');
+}
+
+// التحميل الأولي
+document.addEventListener('DOMContentLoaded', () => loadReport('daily'));
+</script>
+
+{% endblock %}

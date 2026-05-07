@@ -1,0 +1,299 @@
+{% extends 'base.html' %}
+{% block content %}
+
+<style>
+    .timeline-line {
+        position: absolute;
+        right: 23px;
+        top: 0;
+        bottom: 0;
+        width: 2px;
+        background: linear-gradient(to bottom, #e5e7eb, #e5e7eb);
+    }
+    .activity-dot {
+        position: absolute;
+        right: 14px;
+        top: 20px;
+        width: 18px;
+        height: 18px;
+        border-radius: 50%;
+        border: 3px solid white;
+        box-shadow: 0 0 0 2px currentColor;
+    }
+    .card-expand { max-height: 0; overflow: hidden; transition: max-height 0.3s ease; }
+    .card-expand.open { max-height: 600px; }
+    .filter-btn { transition: all 0.15s; }
+    .filter-btn.active { background: #1e293b; color: white; }
+    @keyframes slideIn {
+        from { opacity: 0; transform: translateX(20px); }
+        to { opacity: 1; transform: translateX(0); }
+    }
+    .activity-item { animation: slideIn 0.2s ease forwards; }
+</style>
+
+<div class="max-w-5xl mx-auto">
+
+    <!-- Header -->
+    <div class="flex flex-col md:flex-row justify-between items-start gap-4 mb-8">
+        <div class="flex items-center gap-4">
+            <a href="{{ url_for('customers') }}"
+               class="w-10 h-10 bg-white rounded-xl shadow-sm flex items-center justify-center text-gray-400 hover:text-gray-700 transition border border-gray-100">
+                <i class="fas fa-arrow-right"></i>
+            </a>
+            <div class="w-14 h-14 rounded-2xl bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white text-2xl font-black shadow-lg">
+                {{ customer.name[0] }}
+            </div>
+            <div>
+                <h1 class="text-2xl font-black text-gray-800">{{ customer.name }}</h1>
+                <p class="text-gray-400 text-sm flex items-center gap-3">
+                    <span><i class="fas fa-phone-alt text-xs ml-1"></i>{{ customer.phone }}</span>
+                    {% if customer.email %}
+                    <span><i class="fas fa-envelope text-xs ml-1"></i>{{ customer.email }}</span>
+                    {% endif %}
+                </p>
+            </div>
+        </div>
+        <div class="flex gap-2">
+            <a href="{{ url_for('debts') }}"
+               class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-xl text-sm font-semibold transition flex items-center gap-2">
+                <i class="fas fa-hand-holding-usd"></i> تسديد / إيداع
+            </a>
+        </div>
+    </div>
+
+    <!-- بطاقات الملخص -->
+    <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+        <div class="bg-white rounded-2xl p-4 shadow-sm border border-gray-100">
+            <p class="text-xs text-gray-400 mb-1">إجمالي المشتريات</p>
+            <p class="text-xl font-black text-gray-800">{{ "{:,.2f}".format(summary.total_purchased) }} ₪</p>
+            <p class="text-xs text-gray-400 mt-1">{{ summary.invoice_count }} فاتورة</p>
+        </div>
+        <div class="bg-white rounded-2xl p-4 shadow-sm border border-gray-100">
+            <p class="text-xs text-gray-400 mb-1">إجمالي المدفوع</p>
+            <p class="text-xl font-black text-green-600">{{ "{:,.2f}".format(summary.total_paid) }} ₪</p>
+            <p class="text-xs text-gray-400 mt-1">{{ summary.payment_count }} عملية سداد</p>
+        </div>
+        <div class="bg-white rounded-2xl p-4 shadow-sm border {% if summary.current_debt > 0 %}border-red-100{% else %}border-gray-100{% endif %}">
+            <p class="text-xs text-gray-400 mb-1">الدين الحالي</p>
+            <p class="text-xl font-black {% if summary.current_debt > 0 %}text-red-600{% else %}text-gray-400{% endif %}">
+                {{ "{:,.2f}".format(summary.current_debt) }} ₪
+            </p>
+            <p class="text-xs {% if summary.current_debt > 0 %}text-red-400{% else %}text-green-500{% endif %} mt-1">
+                {% if summary.current_debt > 0 %}مستحق{% else %}✓ لا يوجد دين{% endif %}
+            </p>
+        </div>
+        <div class="bg-white rounded-2xl p-4 shadow-sm border {% if summary.wallet > 0 %}border-blue-100{% else %}border-gray-100{% endif %}">
+            <p class="text-xs text-gray-400 mb-1">رصيد المحفظة</p>
+            <p class="text-xl font-black {% if summary.wallet > 0 %}text-blue-600{% else %}text-gray-400{% endif %}">
+                {{ "{:,.2f}".format(summary.wallet) }} ₪
+            </p>
+            <p class="text-xs text-gray-400 mt-1">{% if summary.wallet > 0 %}متاح للاستخدام{% else %}لا يوجد رصيد{% endif %}</p>
+        </div>
+    </div>
+
+    <!-- فلاتر + بحث -->
+    <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 mb-6 flex flex-wrap items-center gap-3">
+        <div class="flex gap-2">
+            <button onclick="filterActivities('all')" id="f-all"
+                    class="filter-btn active px-4 py-1.5 rounded-xl text-sm font-semibold border border-gray-200">
+                الكل
+            </button>
+            <button onclick="filterActivities('sale')" id="f-sale"
+                    class="filter-btn px-4 py-1.5 rounded-xl text-sm font-semibold border border-gray-200 text-gray-600">
+                <i class="fas fa-shopping-cart text-blue-400 ml-1"></i> مشتريات
+            </button>
+            <button onclick="filterActivities('payment')" id="f-payment"
+                    class="filter-btn px-4 py-1.5 rounded-xl text-sm font-semibold border border-gray-200 text-gray-600">
+                <i class="fas fa-money-bill-wave text-green-400 ml-1"></i> مدفوعات
+            </button>
+        </div>
+        <div class="relative flex-1 min-w-[200px]">
+            <input type="text" id="searchInput" placeholder="ابحث برقم الفاتورة أو المنتج..."
+                   class="w-full border border-gray-200 rounded-xl px-4 py-2 pr-10 text-sm outline-none focus:border-blue-300"
+                   oninput="searchActivities()">
+            <i class="fas fa-search absolute right-3 top-1/2 -translate-y-1/2 text-gray-300 text-sm"></i>
+        </div>
+        <span id="countBadge" class="text-xs text-gray-400 bg-gray-100 px-3 py-1.5 rounded-xl font-medium">
+            {{ activities|length }} حركة
+        </span>
+    </div>
+
+    <!-- التايم لاين -->
+    <div class="relative" id="activitiesContainer">
+        <div class="timeline-line"></div>
+
+        {% for act in activities %}
+        <div class="activity-item relative pr-12 mb-5"
+             data-type="{{ act.type }}"
+             data-ref="{{ act.ref }}"
+             data-items="{{ act['items'] | map(attribute='name') | join(' ') | lower }}">
+
+            <!-- النقطة على التايم لاين -->
+            {% if act.type == 'sale' %}
+                {% if act.status == 'paid' %}
+                <div class="activity-dot bg-green-500 text-green-500"></div>
+                {% elif act.status == 'partial' %}
+                <div class="activity-dot bg-yellow-500 text-yellow-500"></div>
+                {% else %}
+                <div class="activity-dot bg-red-500 text-red-500"></div>
+                {% endif %}
+            {% else %}
+            <div class="activity-dot bg-blue-500 text-blue-500"></div>
+            {% endif %}
+
+            <!-- البطاقة -->
+            <div class="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden hover:shadow-md transition">
+
+                <!-- رأس البطاقة -->
+                <div class="flex items-center justify-between p-4 cursor-pointer"
+                     onclick="toggleCard(this)" {% if act.type == 'payment' %}style="cursor:default"{% endif %}>
+                    <div class="flex items-center gap-3">
+                        <!-- أيقونة النوع -->
+                        {% if act.type == 'sale' %}
+                        <div class="w-10 h-10 rounded-xl bg-blue-50 flex items-center justify-center">
+                            <i class="fas fa-shopping-bag text-blue-500"></i>
+                        </div>
+                        {% else %}
+                        <div class="w-10 h-10 rounded-xl bg-green-50 flex items-center justify-center">
+                            <i class="fas fa-hand-holding-usd text-green-500"></i>
+                        </div>
+                        {% endif %}
+
+                        <div>
+                            <div class="flex items-center gap-2">
+                                <span class="font-bold text-gray-800 text-sm font-mono">{{ act.ref }}</span>
+                                {% if act.type == 'sale' %}
+                                    {% if act.status == 'paid' %}
+                                    <span class="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-medium">مدفوع</span>
+                                    {% elif act.status == 'partial' %}
+                                    <span class="text-xs bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded-full font-medium">جزئي</span>
+                                    {% else %}
+                                    <span class="text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded-full font-medium">دين</span>
+                                    {% endif %}
+                                {% else %}
+                                <span class="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-medium">
+                                    {{ 'نقد' if act.get('method', 'cash') == 'cash' else 'تحويل' }}
+                                </span>
+                                {% endif %}
+                            </div>
+                            <p class="text-xs text-gray-400 mt-0.5">
+                                <i class="fas fa-clock ml-1"></i>{{ act.date.strftime('%Y-%m-%d  %H:%M') }}
+                            </p>
+                        </div>
+                    </div>
+
+                    <div class="text-left flex items-center gap-4">
+                        {% if act.type == 'sale' %}
+                        <div class="text-left">
+                            <p class="text-xs text-gray-400">الإجمالي</p>
+                            <p class="font-black text-gray-800">{{ "{:,.2f}".format(act.amount) }} ₪</p>
+                        </div>
+                        {% if act.remaining > 0 %}
+                        <div class="text-left">
+                            <p class="text-xs text-gray-400">المتبقي</p>
+                            <p class="font-bold text-red-600">{{ "{:,.2f}".format(act.remaining) }} ₪</p>
+                        </div>
+                        {% endif %}
+                        {% if act['items'] %}
+                        <i class="fas fa-chevron-down text-gray-300 text-xs transition-transform expand-icon"></i>
+                        {% endif %}
+                        {% else %}
+                        <div class="text-left">
+                            <p class="text-xs text-gray-400">مبلغ السداد</p>
+                            <p class="font-black text-green-600">+{{ "{:,.2f}".format(act.amount) }} ₪</p>
+                        </div>
+                        {% endif %}
+                    </div>
+                </div>
+
+                <!-- تفاصيل المنتجات (قابلة للطي) -->
+                {% if act.items %}
+                <div class="card-expand">
+                    <div class="border-t border-gray-50 mx-4 mb-4 pt-3">
+                        <p class="text-xs font-semibold text-gray-400 mb-2 uppercase tracking-wide">المنتجات</p>
+                        <div class="space-y-1">
+                            {% for item in act['items'] %}
+                            <div class="flex items-center justify-between text-sm py-1.5 border-b border-gray-50 last:border-0">
+                                <span class="text-gray-700 font-medium">{{ item.name }}</span>
+                                <div class="flex items-center gap-4 text-gray-500">
+                                    <span>{{ item.qty }} × {{ "{:,.2f}".format(item.unit_price) }} ₪</span>
+                                    <span class="font-bold text-gray-700 w-20 text-left">{{ "{:,.2f}".format(item.total) }} ₪</span>
+                                </div>
+                            </div>
+                            {% endfor %}
+                        </div>
+                        <div class="flex justify-between items-center mt-2 pt-2 border-t border-gray-100">
+                            <span class="text-xs text-gray-400">الإجمالي</span>
+                            <span class="font-black text-gray-800">{{ "{:,.2f}".format(act.amount) }} ₪</span>
+                        </div>
+                        {% if act.notes %}
+                        <p class="text-xs text-gray-400 mt-2 bg-gray-50 rounded-lg px-3 py-2">
+                            <i class="fas fa-sticky-note ml-1"></i>{{ act.notes }}
+                        </p>
+                        {% endif %}
+                    </div>
+                </div>
+                {% endif %}
+
+                {% if act.type == 'payment' and act.notes %}
+                <div class="px-4 pb-3">
+                    <p class="text-xs text-gray-400 bg-gray-50 rounded-lg px-3 py-2">
+                        <i class="fas fa-sticky-note ml-1"></i>{{ act.notes }}
+                    </p>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+        {% else %}
+        <div class="text-center py-16 text-gray-400">
+            <div class="w-20 h-20 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                <i class="fas fa-history text-3xl text-gray-300"></i>
+            </div>
+            <p class="font-semibold">لا توجد حركات مسجلة لهذا العميل</p>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+
+<script>
+let currentFilter = 'all';
+let currentSearch = '';
+
+function toggleCard(header) {
+    const expand = header.nextElementSibling;
+    if (!expand || !expand.classList.contains('card-expand')) return;
+    const icon = header.querySelector('.expand-icon');
+    const isOpen = expand.classList.contains('open');
+    expand.classList.toggle('open', !isOpen);
+    if (icon) icon.style.transform = isOpen ? '' : 'rotate(180deg)';
+}
+
+function filterActivities(type) {
+    currentFilter = type;
+    document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+    document.getElementById('f-' + type).classList.add('active');
+    applyFilters();
+}
+
+function searchActivities() {
+    currentSearch = document.getElementById('searchInput').value.toLowerCase();
+    applyFilters();
+}
+
+function applyFilters() {
+    const items = document.querySelectorAll('.activity-item');
+    let visible = 0;
+    items.forEach(item => {
+        const typeMatch = currentFilter === 'all' || item.dataset.type === currentFilter;
+        const ref = (item.dataset.ref || '').toLowerCase();
+        const itemNames = (item.dataset.items || '').toLowerCase();
+        const searchMatch = !currentSearch || ref.includes(currentSearch) || itemNames.includes(currentSearch);
+        const show = typeMatch && searchMatch;
+        item.style.display = show ? '' : 'none';
+        if (show) visible++;
+    });
+    document.getElementById('countBadge').innerText = visible + ' حركة';
+}
+</script>
+
+{% endblock %}

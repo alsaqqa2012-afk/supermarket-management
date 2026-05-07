@@ -1,0 +1,293 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="font-cairo space-y-6">
+    <div class="flex flex-col sm:flex-row justify-between items-center gap-4">
+        <h1 class="text-3xl font-bold text-brand-dark flex items-center gap-2">
+            <i class="fas fa-truck-loading text-brand-gold"></i> فواتير المشتريات
+        </h1>
+        <a href="{{ url_for('add_incoming') }}" class="bg-brand-primary hover:bg-brand-dark text-white px-6 py-3 rounded-xl transition flex items-center gap-2 shadow-lg hover:shadow-xl font-bold">
+            <i class="fas fa-plus-circle"></i> فاتورة شراء جديدة
+        </a>
+    </div>
+
+    <!-- بطاقات إحصائيات سريعة -->
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+        <div class="bg-white rounded-2xl shadow-sm p-5 border-r-4 border-brand-primary">
+            <div class="flex items-center justify-between">
+                <div>
+                    <p class="text-gray-500 text-xs font-medium mb-1">إجمالي المشتريات</p>
+                    <p class="text-2xl font-bold text-brand-dark">{{ "{:,.2f}".format(purchases|sum(attribute='total_amount')) }} ₪</p>
+                </div>
+                <div class="w-10 h-10 bg-brand-primary/10 rounded-lg flex items-center justify-center text-brand-primary">
+                    <i class="fas fa-file-invoice-dollar text-xl"></i>
+                </div>
+            </div>
+        </div>
+        <div class="bg-white rounded-2xl shadow-sm p-5 border-r-4 border-brand-gold">
+            <div class="flex items-center justify-between">
+                <div>
+                    <p class="text-gray-500 text-xs font-medium mb-1">فواتير معلقة</p>
+                    <p class="text-2xl font-bold text-brand-secondary">{{ purchases|selectattr('payment_status', 'equalto', 'unpaid')|list|length }}</p>
+                </div>
+                <div class="w-10 h-10 bg-brand-gold/10 rounded-lg flex items-center justify-center text-brand-secondary">
+                    <i class="fas fa-clock text-xl"></i>
+                </div>
+            </div>
+        </div>
+        <div class="bg-white rounded-2xl shadow-sm p-5 border-r-4 border-green-500">
+            <div class="flex items-center justify-between">
+                <div>
+                    <p class="text-gray-500 text-xs font-medium mb-1">مدفوعة كلياً</p>
+                    <p class="text-2xl font-bold text-green-600">{{ purchases|selectattr('payment_status', 'equalto', 'paid')|list|length }}</p>
+                </div>
+                <div class="w-10 h-10 bg-green-50 rounded-lg flex items-center justify-center text-green-500">
+                    <i class="fas fa-check-double text-xl"></i>
+                </div>
+            </div>
+        </div>
+        <div class="bg-white rounded-2xl shadow-sm p-5 border-r-4 border-red-500">
+            <div class="flex items-center justify-between">
+                <div>
+                    <p class="text-gray-500 text-xs font-medium mb-1">المتبقي للموردين</p>
+                    {% set total_remaining = purchases|sum(attribute='total_amount') - purchases|sum(attribute='paid_amount') %}
+                    <p class="text-2xl font-bold text-red-600">{{ "{:,.2f}".format(total_remaining) }} ₪</p>
+                </div>
+                <div class="w-10 h-10 bg-red-50 rounded-lg flex items-center justify-center text-red-500">
+                    <i class="fas fa-hand-holding-usd text-xl"></i>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- جدول الفواتير -->
+    <div class="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+        <div class="overflow-x-auto">
+            <table class="w-full text-right">
+                <thead>
+                    <tr class="bg-brand-dark text-white">
+                        <th class="px-4 py-4 font-bold text-xs">رقم الفاتورة</th>
+                        <th class="px-4 py-4 font-bold text-xs">التاريخ</th>
+                        <th class="px-4 py-4 font-bold text-xs">المورد</th>
+                        <th class="px-4 py-4 font-bold text-xs">الإجمالي</th>
+                        <th class="px-4 py-4 font-bold text-xs">المدفوع</th>
+                        <th class="px-4 py-4 font-bold text-xs">المتبقي</th>
+                        <th class="px-4 py-4 font-bold text-xs">الحالة</th>
+                        <th class="px-4 py-4 font-bold text-xs text-center">إجراءات</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-gray-50">
+                    {% for purchase in purchases %}
+                    <tr class="hover:bg-brand-gold/5 transition-colors group">
+                        <td class="px-4 py-4 font-mono text-xs text-brand-secondary">#{{ purchase.invoice_number }}</td>
+                        <td class="px-4 py-4 text-xs text-gray-500">{{ purchase.receipt_date.strftime('%Y-%m-%d') }}</td>
+                        <td class="px-4 py-4">
+                            <span class="font-bold text-brand-dark">{{ purchase.supplier.name if purchase.supplier else '👤 غير محدد' }}</span>
+                        </td>
+                        <td class="px-4 py-4 font-bold text-brand-primary">{{ "{:,.2f}".format(purchase.total_amount) }} ₪</td>
+                        <td class="px-4 py-4 text-green-600 text-sm">{{ "{:,.2f}".format(purchase.paid_amount) }} ₪</td>
+                        <td class="px-4 py-4">
+                            <span class="{% if (purchase.total_amount - purchase.paid_amount) > 0 %}text-red-600 font-bold{% else %}text-gray-400{% endif %}">
+                                {{ "{:,.2f}".format(purchase.total_amount - purchase.paid_amount) }} ₪
+                            </span>
+                        </td>
+                        <td class="px-4 py-4">
+                            {% if purchase.payment_status == 'paid' %}
+                            <span class="px-3 py-1 rounded-full text-[10px] font-bold bg-green-100 text-green-700">مكتمل</span>
+                            {% elif purchase.payment_status == 'partial' %}
+                            <span class="px-3 py-1 rounded-full text-[10px] font-bold bg-yellow-100 text-yellow-700">جزئي</span>
+                            {% else %}
+                            <span class="px-3 py-1 rounded-full text-[10px] font-bold bg-red-100 text-red-700">غير مدفوع</span>
+                            {% endif %}
+                        </td>
+                        <td class="px-4 py-4 text-center">
+                            <div class="flex justify-center gap-3">
+                                <button onclick="viewDetails({{ purchase.id }})" class="text-brand-secondary hover:text-brand-gold transition-colors p-1" title="عرض التفاصيل">
+                                    <i class="fas fa-eye"></i>
+                                </button>
+                                {% if purchase.payment_status != 'paid' %}
+                                <button onclick="recordPayment({{ purchase.id }}, {{ purchase.total_amount - purchase.paid_amount }})" class="text-green-500 hover:text-green-700 transition-colors p-1" title="تسديد دفعة">
+                                    <i class="fas fa-money-bill-wave"></i>
+                                </button>
+                                {% endif %}
+                            </div>
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="8" class="text-center py-20 text-gray-400">
+                            <i class="fas fa-receipt text-5xl mb-4 opacity-20"></i>
+                            <p>لا توجد فواتير شراء مسجلة</p>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- Modal عرض التفاصيل -->
+<div id="detailsModal" class="fixed inset-0 bg-brand-dark/50 hidden items-center justify-center z-[100] p-4 backdrop-blur-sm">
+    <div class="bg-white rounded-2xl shadow-2xl max-w-3xl w-full max-h-[90vh] overflow-hidden flex flex-col border-t-4 border-brand-gold">
+        <div class="px-6 py-4 flex justify-between items-center bg-gray-50 border-b">
+            <h3 class="text-xl font-bold text-brand-dark flex items-center gap-2">
+                <i class="fas fa-info-circle text-brand-secondary"></i> تفاصيل الفاتورة
+            </h3>
+            <button onclick="closeModal()" class="text-gray-400 hover:text-red-500 transition-colors">
+                <i class="fas fa-times text-xl"></i>
+            </button>
+        </div>
+        <div id="modalContent" class="p-6 overflow-y-auto">
+            <!-- يتم تعبئتها عبر JS -->
+        </div>
+    </div>
+</div>
+
+<!-- Modal تسديد دفعة -->
+<div id="paymentModal" class="fixed inset-0 bg-brand-dark/50 hidden items-center justify-center z-[100] p-4 backdrop-blur-sm">
+    <div class="bg-white rounded-2xl shadow-2xl max-w-md w-full border-t-4 border-green-500 overflow-hidden">
+        <div class="px-6 py-4 flex justify-between items-center bg-gray-50 border-b">
+            <h3 class="text-xl font-bold text-brand-dark flex items-center gap-2">
+                <i class="fas fa-money-bill-wave text-green-500"></i> تسديد دفعة للمورد
+            </h3>
+            <button onclick="closePaymentModal()" class="text-gray-400 hover:text-red-500 transition-colors">
+                <i class="fas fa-times text-xl"></i>
+            </button>
+        </div>
+        <form method="POST" action="{{ url_for('record_supplier_payment') }}" class="p-6 space-y-4">
+            <input type="hidden" name="purchase_id" id="purchaseId">
+            <div class="bg-red-50 p-4 rounded-xl border border-red-100 flex justify-between items-center">
+                <span class="text-sm text-red-800 font-medium">المبلغ المتبقي:</span>
+                <p id="remainingAmount" class="text-xl font-bold text-red-600"></p>
+            </div>
+            <div>
+                <label class="block text-xs font-bold text-brand-dark mb-1">المبلغ المسدد الآن *</label>
+                <div class="relative">
+                    <input type="number" name="amount" step="0.01" required 
+                        class="w-full border border-gray-200 rounded-xl px-4 py-3 focus:ring-2 focus:ring-brand-gold outline-none text-left font-bold text-brand-primary">
+                    <span class="absolute right-4 top-3 text-gray-400">₪</span>
+                </div>
+            </div>
+            <div>
+                <label class="block text-xs font-bold text-brand-dark mb-1">طريقة الدفع</label>
+                <select name="payment_method" class="w-full border border-gray-200 rounded-xl px-4 py-3 focus:ring-2 focus:ring-brand-gold outline-none">
+                    <option value="cash">💵 نقد</option>
+                    <option value="bank">🏦 تحويل بنكي</option>
+                    <option value="check">📝 شيك</option>
+                </select>
+            </div>
+            <div>
+                <label class="block text-xs font-bold text-brand-dark mb-1">ملاحظات</label>
+                <textarea name="notes" rows="2" class="w-full border border-gray-200 rounded-xl px-4 py-3 focus:ring-2 focus:ring-brand-gold outline-none" placeholder="أي تفاصيل إضافية..."></textarea>
+            </div>
+            <div class="flex gap-3 pt-4">
+                <button type="submit" class="flex-1 bg-brand-primary text-white py-3 rounded-xl font-bold hover:bg-brand-dark transition shadow-lg">تأكيد السداد</button>
+                <button type="button" onclick="closePaymentModal()" class="flex-1 bg-gray-100 text-gray-500 py-3 rounded-xl font-bold hover:bg-gray-200 transition">إلغاء</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+    async function viewDetails(purchaseId) {
+        showLoading();
+        try {
+            const response = await fetch(`/api/purchase_details/${purchaseId}`);
+            const data = await response.json();
+            hideLoading();
+            
+            if (data.error) {
+                alert(data.error);
+                return;
+            }
+            
+            let itemsHtml = '';
+            data.items.forEach(item => {
+                itemsHtml += `
+                    <tr class="border-b border-gray-50">
+                        <td class="px-4 py-3 text-brand-dark font-medium">${item.product_name}</td>
+                        <td class="px-4 py-3 text-center">${item.quantity}</td>
+                        <td class="px-4 py-3 text-left">${item.cost_price.toFixed(2)} ₪</td>
+                        <td class="px-4 py-3 text-left font-bold text-brand-primary">${item.total.toFixed(2)} ₪</td>
+                    </tr>
+                `;
+            });
+            
+            const contentHtml = `
+                <div class="space-y-6">
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 bg-brand-gold/5 p-5 rounded-2xl border border-brand-gold/10">
+                        <div class="text-sm"><span class="text-gray-500 ml-2">رقم الفاتورة:</span> <span class="font-bold text-brand-dark">#${data.invoice.invoice_number}</span></div>
+                        <div class="text-sm"><span class="text-gray-500 ml-2">تاريخ الاستلام:</span> <span class="font-bold text-brand-dark">${data.invoice.receipt_date}</span></div>
+                        <div class="text-sm"><span class="text-gray-500 ml-2">المورد:</span> <span class="font-bold text-brand-secondary">${data.invoice.supplier_name || 'غير محدد'}</span></div>
+                        <div class="text-sm"><span class="text-gray-500 ml-2">طريقة الدفع:</span> <span class="font-bold text-brand-dark">${data.invoice.payment_method || '-'}</span></div>
+                        <div class="text-sm flex items-center"><span class="text-gray-500 ml-2">حالة الدفع:</span> 
+                            <span class="px-2 py-0.5 rounded-full text-[10px] font-bold ${data.invoice.payment_status === 'paid' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}">
+                                ${data.invoice.payment_status === 'paid' ? 'مدفوع بالكامل' : 'معلق'}
+                            </span>
+                        </div>
+                    </div>
+                    
+                    <div class="grid grid-cols-3 gap-4 text-center">
+                        <div class="bg-gray-50 p-3 rounded-xl">
+                            <p class="text-[10px] text-gray-500">الإجمالي</p>
+                            <p class="font-bold text-brand-dark">${data.invoice.total_amount.toFixed(2)} ₪</p>
+                        </div>
+                        <div class="bg-green-50 p-3 rounded-xl">
+                            <p class="text-[10px] text-green-700">المدفوع</p>
+                            <p class="font-bold text-green-600">${data.invoice.paid_amount.toFixed(2)} ₪</p>
+                        </div>
+                        <div class="bg-red-50 p-3 rounded-xl">
+                            <p class="text-[10px] text-red-700">المتبقي</p>
+                            <p class="font-bold text-red-600">${(data.invoice.total_amount - data.invoice.paid_amount).toFixed(2)} ₪</p>
+                        </div>
+                    </div>
+
+                    <div>
+                        <h4 class="font-bold text-brand-dark mb-3 flex items-center gap-2">
+                            <i class="fas fa-list-ul text-brand-gold text-sm"></i> المنتجات في الفاتورة
+                        </h4>
+                        <div class="overflow-hidden border border-gray-100 rounded-xl">
+                            <table class="w-full text-sm">
+                                <thead class="bg-gray-50 text-right">
+                                    <tr>
+                                        <th class="px-4 py-3 font-bold text-gray-600">المنتج</th>
+                                        <th class="px-4 py-3 font-bold text-gray-600 text-center">الكمية</th>
+                                        <th class="px-4 py-3 font-bold text-gray-600 text-left">السعر</th>
+                                        <th class="px-4 py-3 font-bold text-gray-600 text-left">الإجمالي</th>
+                                    </tr>
+                                </thead>
+                                <tbody>${itemsHtml}</tbody>
+                            </table>
+                        </div>
+                    </div>
+                    ${data.invoice.notes ? `<div class="bg-gray-50 p-3 rounded-xl text-xs"><span class="font-bold text-brand-dark ml-2">ملاحظات:</span> ${data.invoice.notes}</div>` : ''}
+                </div>
+            `;
+            
+            document.getElementById('modalContent').innerHTML = contentHtml;
+            document.getElementById('detailsModal').classList.remove('hidden');
+            document.getElementById('detailsModal').classList.add('flex');
+        } catch (e) {
+            hideLoading();
+            alert('حدث خطأ أثناء جلب البيانات');
+        }
+    }
+    
+    function closeModal() {
+        document.getElementById('detailsModal').classList.add('hidden');
+        document.getElementById('detailsModal').classList.remove('flex');
+    }
+    
+    function recordPayment(purchaseId, remaining) {
+        document.getElementById('purchaseId').value = purchaseId;
+        document.getElementById('remainingAmount').innerText = remaining.toFixed(2) + ' ₪';
+        document.getElementById('paymentModal').classList.remove('hidden');
+        document.getElementById('paymentModal').classList.add('flex');
+    }
+    
+    function closePaymentModal() {
+        document.getElementById('paymentModal').classList.add('hidden');
+        document.getElementById('paymentModal').classList.remove('flex');
+    }
+</script>
+{% endblock %}

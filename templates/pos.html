@@ -1,0 +1,364 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-6 font-cairo">
+    <!-- Products Grid -->
+    <div class="lg:col-span-2 bg-white rounded-xl shadow-md p-4">
+        <div class="flex justify-between items-center mb-4">
+            <h2 class="text-xl font-bold text-brand-dark">📦 المنتجات</h2>
+            <span class="text-sm text-brand-secondary bg-brand-gold/20 px-3 py-1 rounded-full">المخزون المباشر</span>
+        </div>
+        <div class="mb-4 relative">
+            <input type="text" id="searchInput" placeholder="بحث عن منتج (اسم، باركود)..." 
+                class="w-full px-4 py-2 pr-10 border border-brand-secondary/30 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-gold focus:border-transparent transition">
+            <div class="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none">
+                <i class="fas fa-search text-brand-secondary/50"></i>
+            </div>
+        </div>
+        <div id="productsGrid" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3 max-h-[600px] overflow-y-auto p-1">
+            {% for product in products %}
+            <div class="product-card border border-gray-100 rounded-lg p-3 cursor-pointer hover:shadow-lg hover:border-brand-gold transition-all bg-white group" 
+                data-id="{{ product.id }}" data-name="{{ product.name }}" data-price="{{ product.selling_price }}" data-stock="{{ product.current_stock }}">
+                <div class="text-center">
+                    <div class="text-3xl mb-2 group-hover:scale-110 transition-transform">📦</div>
+                    <div class="font-semibold text-sm text-brand-dark h-10 overflow-hidden">{{ product.name }}</div>
+                    <div class="text-brand-primary font-bold mt-1">{{ "{:,.2f}".format(product.selling_price) }} ₪</div>
+                    <div class="text-[10px] text-gray-500 mt-1">المتبقي: <span class="{% if product.current_stock <= 5 %}text-red-500 font-bold{% endif %}">{{ product.current_stock }}</span> {{ product.unit }}</div>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    
+    <!-- Cart -->
+    <div class="bg-white rounded-xl shadow-md p-4 flex flex-col h-fit sticky top-20">
+        <h2 class="text-xl font-bold mb-4 text-brand-dark flex items-center gap-2">
+            <i class="fas fa-shopping-cart text-brand-gold"></i> سلة المشتريات
+        </h2>
+        
+        <div class="mb-4">
+            <label class="block text-sm font-medium mb-1 text-brand-secondary">العميل</label>
+            <div class="flex gap-2">
+                <select id="customerSelect" class="flex-grow border border-brand-secondary/30 rounded-lg px-3 py-2 focus:ring-2 focus:ring-brand-gold outline-none">
+                    <option value="">👤 عميل نقدي</option>
+                    {% for customer in customers %}
+                    <option value="{{ customer.id }}" data-balance="{{ customer.current_balance }}">
+                        {{ customer.name }} {% if customer.current_balance > 0 %}(دين: {{ "{:,.2f}".format(customer.current_balance) }} ₪){% endif %}
+                    </option>
+                    {% endfor %}
+                </select>
+                <button type="button" onclick="showAddCustomerModal()" class="bg-brand-gold/20 text-brand-dark p-2 rounded-lg hover:bg-brand-gold transition" title="إضافة عميل">
+                    <i class="fas fa-user-plus"></i>
+                </button>
+            </div>
+        </div>
+        
+        <div id="cartItems" class="max-h-[300px] overflow-y-auto mb-4 space-y-2 min-h-[100px] border-b border-dashed border-gray-200 pb-2">
+            <div class="text-center text-gray-400 py-10" id="emptyCartMsg">السلة فارغة</div>
+        </div>
+        
+        <div class="space-y-3">
+            <div class="flex justify-between text-gray-600">
+                <span>المجموع الفرعي:</span>
+                <span id="subtotal" class="font-semibold">0.00 ₪</span>
+            </div>
+            <div class="flex justify-between items-center">
+                <span>الخصم:</span>
+                <div class="relative">
+                    <input type="number" id="discount" value="0" class="w-24 border border-brand-secondary/30 rounded px-2 py-1 text-left focus:ring-1 focus:ring-brand-gold outline-none" step="0.01">
+                    <span class="absolute left-1 top-1 text-xs text-gray-400">₪</span>
+                </div>
+            </div>
+            <div class="flex justify-between font-bold text-xl text-brand-dark pt-2 border-t">
+                <span>الإجمالي:</span>
+                <span id="total">0.00 ₪</span>
+            </div>
+            <div class="flex justify-between items-center bg-gray-50 p-2 rounded-lg">
+                <span class="text-sm">المبلغ المدفوع:</span>
+                <div class="relative">
+                    <input type="number" id="paidAmount" value="0" class="w-32 border border-brand-secondary/30 rounded px-2 py-1 text-left font-bold text-brand-primary focus:ring-2 focus:ring-brand-gold outline-none" step="0.01">
+                    <span class="absolute left-1 top-1 text-xs text-gray-400">₪</span>
+                </div>
+            </div>
+            <div class="flex justify-between text-brand-secondary font-medium">
+                <span>المتبقي (الباقي):</span>
+                <span id="change">0.00 ₪</span>
+            </div>
+            
+            <button onclick="completeSale()" class="w-full bg-brand-primary hover:bg-brand-dark text-white font-bold py-3 rounded-xl transition-all shadow-lg hover:shadow-xl flex items-center justify-center gap-2 mt-4">
+                <i class="fas fa-check-circle"></i> إتمام العملية
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- Modal إضافة عميل جديد -->
+<div id="addCustomerModal" class="fixed inset-0 bg-brand-dark/50 hidden items-center justify-center z-[100] backdrop-blur-sm">
+    <div class="bg-white rounded-2xl p-6 w-96 shadow-2xl border-t-4 border-brand-gold">
+        <h3 class="text-xl font-bold mb-4 text-brand-dark flex items-center gap-2">
+            <i class="fas fa-user-plus text-brand-gold"></i> إضافة عميل جديد
+        </h3>
+        <div class="space-y-4">
+            <div>
+                <label class="block text-xs text-gray-500 mb-1">الاسم الكامل</label>
+                <input type="text" id="newCustomerName" placeholder="مثال: أحمد محمد" class="w-full border border-gray-200 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-brand-gold">
+            </div>
+            <div>
+                <label class="block text-xs text-gray-500 mb-1">رقم الهاتف</label>
+                <input type="tel" id="newCustomerPhone" placeholder="05xxxxxxxx" class="w-full border border-gray-200 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-brand-gold">
+            </div>
+            <div class="flex gap-2 pt-2">
+                <button onclick="addNewCustomer()" class="flex-1 bg-brand-primary text-white py-2 rounded-lg font-bold hover:bg-brand-dark transition">حفظ</button>
+                <button onclick="closeCustomerModal()" class="flex-1 bg-gray-100 text-gray-600 py-2 rounded-lg hover:bg-gray-200 transition">إلغاء</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+let cart = [];
+
+function updateCartDisplay() {
+    const cartDiv = document.getElementById('cartItems');
+    const emptyMsg = document.getElementById('emptyCartMsg');
+    
+    if (cart.length === 0) {
+        cartDiv.innerHTML = '<div class="text-center text-gray-400 py-10" id="emptyCartMsg">السلة فارغة</div>';
+        document.getElementById('subtotal').innerText = '0.00 ₪';
+        updateTotal();
+        return;
+    }
+
+    cartDiv.innerHTML = '';
+    let subtotal = 0;
+    
+    cart.forEach((item, index) => {
+        const itemTotal = item.quantity * item.price;
+        subtotal += itemTotal;
+        cartDiv.innerHTML += `
+            <div class="flex justify-between items-center bg-gray-50 p-2 rounded-lg group">
+                <div class="flex-1">
+                    <div class="font-semibold text-sm text-brand-dark">${item.name}</div>
+                    <div class="text-[11px] text-gray-500">${item.price.toFixed(2)} ₪ × ${item.quantity}</div>
+                </div>
+                <div class="font-bold text-brand-primary mx-2 text-sm">${itemTotal.toFixed(2)} ₪</div>
+                <button onclick="removeFromCart(${index})" class="text-red-400 hover:text-red-600 p-1">
+                    <i class="fas fa-trash-alt"></i>
+                </button>
+            </div>
+        `;
+    });
+    
+    document.getElementById('subtotal').innerText = subtotal.toFixed(2) + ' ₪';
+    updateTotal();
+}
+
+function updateTotal() {
+    const subtotalText = document.getElementById('subtotal').innerText;
+    const subtotal = parseFloat(subtotalText.replace(' ₪', '')) || 0;
+    const discount = parseFloat(document.getElementById('discount').value) || 0;
+    const total = Math.max(0, subtotal - discount);
+    
+    document.getElementById('total').innerText = total.toFixed(2) + ' ₪';
+    
+    const paid = parseFloat(document.getElementById('paidAmount').value) || 0;
+    const change = paid - total;
+    
+    const changeElement = document.getElementById('change');
+    changeElement.innerText = change.toFixed(2) + ' ₪';
+    
+    if (change < 0) {
+        changeElement.classList.add('text-red-500');
+        changeElement.classList.remove('text-brand-secondary');
+    } else {
+        changeElement.classList.remove('text-red-500');
+        changeElement.classList.add('text-brand-secondary');
+    }
+}
+
+function addToCart(productId, name, price, stock) {
+    if (stock <= 0) {
+        alert('عذراً، هذا المنتج غير متوفر في المخزون حالياً');
+        return;
+    }
+    const existing = cart.find(item => item.id === productId);
+    if (existing) {
+        if (existing.quantity >= stock) {
+            alert('وصلت للحد الأقصى المتاح في المخزون');
+            return;
+        }
+        existing.quantity++;
+    } else {
+        cart.push({ id: productId, name: name, price: price, quantity: 1 });
+    }
+    updateCartDisplay();
+}
+
+function removeFromCart(index) {
+    cart.splice(index, 1);
+    updateCartDisplay();
+}
+
+async function completeSale() {
+    if (cart.length === 0) {
+        alert('الرجاء إضافة منتجات للسلة أولاً');
+        return;
+    }
+    
+    const subtotalText = document.getElementById('subtotal').innerText;
+    const subtotal = parseFloat(subtotalText.replace(' ₪', '')) || 0;
+    const discount = parseFloat(document.getElementById('discount').value) || 0;
+    const total = subtotal - discount;
+    const paid = parseFloat(document.getElementById('paidAmount').value) || 0;
+    const customerId = document.getElementById('customerSelect').value;
+    
+    // تصحيح منطق العميل النقدي:
+    // إذا كان العميل نقدي (customerId فارغ)، يجب أن يكون المبلغ المدفوع مساوياً للإجمالي
+    if (!customerId && paid < total) {
+        alert('عذراً، العميل النقدي يجب أن يدفع كامل المبلغ. إذا كان شراء بالدين، يرجى اختيار أو إضافة عميل.');
+        return;
+    }
+    
+    // تأكيد في حالة الدين
+    if (paid < total && customerId) {
+        if (!confirm(`سيتم تسجيل مبلغ ${(total - paid).toFixed(2)} ₪ كدين على العميل. هل أنت متأكد؟`)) {
+            return;
+        }
+    }
+    
+    showLoading();
+    try {
+        const response = await fetch('/api/create_sale', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                cart: cart.map(item => ({
+                    id: item.id,
+                    quantity: item.quantity,
+                    price: item.price,
+                    total: item.quantity * item.price
+                })),
+                customer_id: customerId || null,
+                paid_amount: paid,
+                discount: discount,
+                tax: 0,
+                payment_method: paid < total ? 'credit' : 'cash',
+                notes: ''
+            })
+        });
+        
+        const result = await response.json();
+        hideLoading();
+        
+        if (result.success) {
+            let msg = `✅ تمت العملية بنجاح\n\nرقم الفاتورة: ${result.invoice_number}\nالإجمالي: ${result.total.toFixed(2)} ₪\nالمدفوع: ${paid.toFixed(2)} ₪`;
+            if (result.remaining_balance > 0) {
+                msg += `\nالمتبقي كدين: ${result.remaining_balance.toFixed(2)} ₪`;
+            } else if (result.change > 0) {
+                msg += `\nالباقي للعميل: ${result.change.toFixed(2)} ₪`;
+            }
+            alert(msg);
+            
+            // إعادة ضبط الواجهة
+            cart = [];
+            updateCartDisplay();
+            document.getElementById('discount').value = 0;
+            document.getElementById('paidAmount').value = 0;
+            document.getElementById('customerSelect').value = '';
+            
+            // تحديث الرصيد في القائمة إذا كان عميلاً محدداً
+            if (customerId && result.remaining_balance !== undefined) {
+                const select = document.getElementById('customerSelect');
+                const selectedOption = Array.from(select.options).find(opt => opt.value == customerId);
+                if (selectedOption) {
+                    const currentBalance = parseFloat(selectedOption.dataset.balance) || 0;
+                    const newBalance = currentBalance + result.remaining_balance;
+                    selectedOption.dataset.balance = newBalance;
+                    selectedOption.text = selectedOption.text.split('(')[0] + `(دين: ${newBalance.toFixed(2)} ₪)`;
+                }
+            }
+        } else {
+            alert('❌ فشل إتمام العملية: ' + result.error);
+        }
+    } catch (error) {
+        hideLoading();
+        alert('❌ حدث خطأ في الاتصال بالخادم');
+    }
+}
+
+async function addNewCustomer() {
+    const name = document.getElementById('newCustomerName').value.trim();
+    const phone = document.getElementById('newCustomerPhone').value.trim();
+    
+    if (!name || !phone) {
+        alert('الرجاء إدخال الاسم ورقم الهاتف');
+        return;
+    }
+    
+    showLoading();
+    try {
+        const response = await fetch('/api/add_customer_quick', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name: name, phone: phone })
+        });
+        const result = await response.json();
+        hideLoading();
+        
+        if (result.success) {
+            const select = document.getElementById('customerSelect');
+            const option = document.createElement('option');
+            option.value = result.customer.id;
+            option.textContent = `${result.customer.name} (دين: 0 ₪)`;
+            option.dataset.balance = 0;
+            select.appendChild(option);
+            select.value = result.customer.id;
+            closeCustomerModal();
+        } else if (result.error === 'رقم الهاتف موجود مسبقاً') {
+            alert('هذا الرقم مسجل مسبقاً للعميل: ' + result.customer.name);
+            document.getElementById('customerSelect').value = result.customer.id;
+            closeCustomerModal();
+        } else {
+            alert('خطأ: ' + result.error);
+        }
+    } catch (e) {
+        hideLoading();
+        alert('خطأ في الشبكة');
+    }
+}
+
+function showAddCustomerModal() {
+    document.getElementById('addCustomerModal').classList.remove('hidden');
+    document.getElementById('addCustomerModal').classList.add('flex');
+}
+
+function closeCustomerModal() {
+    document.getElementById('addCustomerModal').classList.add('hidden');
+    document.getElementById('addCustomerModal').classList.remove('flex');
+    document.getElementById('newCustomerName').value = '';
+    document.getElementById('newCustomerPhone').value = '';
+}
+
+// تهيئة الأحداث
+document.querySelectorAll('.product-card').forEach(card => {
+    card.addEventListener('click', () => {
+        addToCart(
+            card.dataset.id,
+            card.dataset.name,
+            parseFloat(card.dataset.price),
+            parseFloat(card.dataset.stock)
+        );
+    });
+});
+
+document.getElementById('searchInput').addEventListener('input', (e) => {
+    const search = e.target.value.toLowerCase();
+    document.querySelectorAll('.product-card').forEach(card => {
+        const name = card.dataset.name.toLowerCase();
+        card.style.display = name.includes(search) ? 'block' : 'none';
+    });
+});
+
+document.getElementById('discount').addEventListener('input', updateTotal);
+document.getElementById('paidAmount').addEventListener('input', updateTotal);
+</script>
+{% endblock %}
